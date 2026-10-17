@@ -5,6 +5,7 @@ import { runArchiveCommand } from "./archive.js";
 import { runCreateCommand } from "./create.js";
 import { runLsCommand } from "./ls.js";
 import { runRenameCommand } from "./rename.js";
+import { runRestoreCommand } from "./restore.js";
 import { runSetupCommand } from "./setup.js";
 
 export function createWorkspaceCommand(): Command {
@@ -64,6 +65,13 @@ export function createWorkspaceCommand(): Command {
       .description("Archive a workspace and everything it owns")
       .argument("<workspace-id>", "Workspace id"),
   ).action(withOutput(runArchiveCommand));
+
+  addJsonAndDaemonHostOptions(
+    workspace
+      .command("restore")
+      .description("Restore an archived workspace")
+      .argument("<workspace-id>", "Workspace id"),
+  ).action(withOutput(runRestoreCommand));
 
   return workspace;
 }
