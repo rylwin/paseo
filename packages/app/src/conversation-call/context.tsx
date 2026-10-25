@@ -8,7 +8,7 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { Text, View } from "react-native";
+import { AppState, Text, View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { Phone, PhoneOutgoing, Mic, MicOff, PhoneOff } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
@@ -26,7 +26,8 @@ import {
 import { useVoiceOptional } from "@/contexts/voice-context";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { ConversationCallController, type CallSignaling, type CallTarget } from "./controller";
-import { createCallMedia } from "./media";
+import { createCallMedia, supportsCalls } from "./media";
+import { bindForegroundCall } from "./foreground";
 
 const CallContext = createContext<ConversationCallController | null>(null);
 const ThemedMic = withUnistyles(Mic, (theme) => ({
@@ -93,9 +94,20 @@ export function ConversationCallProvider({ children }: { children: ReactNode }) 
       }),
   );
   useEffect(() => () => controller.end(), [controller]);
+  useEffect(() => {
+    if (isWeb || !supportsCalls) return;
+    return bindForegroundCall({
+      subscribe(listener) {
+        const subscription = AppState.addEventListener("change", listener);
+        return () => subscription.remove();
+      },
+      getPhase: () => controller.getSnapshot().phase,
+      end: () => controller.end(),
+    });
+  }, [controller]);
   return (
     <CallContext.Provider value={controller}>
-      {isWeb ? (
+      {supportsCalls ? (
         <View style={styles.root}>
           <ConversationCallHost />
           <View style={styles.root}>{children}</View>
@@ -129,7 +141,7 @@ function CallMuteAction() {
   );
 }
 
-/** Only the normal active-agent composer supplies this slot; drafts and native keep their controls. */
+/** Only the normal active-agent composer supplies this slot; drafts keep their controls. */
 export function ConversationCallAction({
   serverId,
   agentId,
@@ -168,7 +180,7 @@ export function ConversationCallAction({
     const target: CallTarget = { serverId, agentId, label: title || t("agentList.fallbackTitle") };
     void controller.start(target, signaling(client));
   }, [agentId, client, controller, isTarget, serverId, title, t]);
-  if (!isWeb || provider !== "pi") return null;
+  if (!supportsCalls || provider !== "pi") return null;
   let label = "Call this Pi agent with GPT-Live";
   let icon = phoneIcon;
   if (isTarget) {
@@ -227,7 +239,8 @@ function ConversationCallHost() {
     ),
     [targetLabel],
   );
-  if (!isWeb || snapshot.phase === "idle" || snapshot.phase === "ended") return null;
+  if (!supportsCalls || snapshot.phase === "idle" || (isWeb && snapshot.phase === "ended"))
+    return null;
   const active = snapshot.phase === "connecting" || snapshot.phase === "connected";
   return (
     <View style={styles.host} testID="conversation-call-host">
@@ -247,6 +260,21 @@ function ConversationCallHost() {
               <ThemedPhoneOff />
             </ToolbarButton>
           </View>
+        ) : null}
+        {snapshot.phase === "ended" ? (
+          <Alert
+            title="Call ended"
+            description="Calls end when Paseo leaves the foreground. Pi work continues independently."
+          >
+            <View style={styles.controls}>
+              <Button onPress={retry} variant="outline">
+                Call again
+              </Button>
+              <Button onPress={dismiss} variant="ghost">
+                Dismiss call
+              </Button>
+            </View>
+          </Alert>
         ) : null}
         {snapshot.error ? (
           <Alert

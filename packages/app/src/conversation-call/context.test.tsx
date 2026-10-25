@@ -73,6 +73,7 @@ vi.mock("@/runtime/host-runtime", () => ({
 }));
 // Browser media is the external boundary; retain the real controller and React subscriptions.
 vi.mock("./media", () => ({
+  supportsCalls: true,
   createCallMedia: (events: MediaEvents) => {
     boundary.events = events;
     return {
@@ -215,10 +216,10 @@ test("connected composer stays selected, cannot retarget, and ends only the capt
   expect(phone().getAttribute("aria-selected")).toBe("false");
 });
 
-test("target conversation has only composer controls; away identity returns to the captured agent", async () => {
+test("compact strip is always present and identity returns to the captured agent", async () => {
   render();
   await click();
-  expect(container.querySelector('[data-testid="conversation-call-host"]')).toBeNull();
+  expect(container.querySelector('[data-testid="conversation-call-host"]')).not.toBeNull();
   const mute = container.querySelector<HTMLButtonElement>('[aria-label="Mute microphone"]')!;
   expect(mute).not.toBeNull();
   act(() => mute.click());
@@ -234,7 +235,7 @@ test("target conversation has only composer controls; away identity returns to t
   );
   expect(boundary.navigate).toHaveBeenCalledWith({ serverId: "host", agentId: "pi" });
   render();
-  expect(container.querySelector('[data-testid="conversation-call-host"]')).toBeNull();
+  expect(container.querySelector('[data-testid="conversation-call-host"]')).not.toBeNull();
 });
 
 test("autoplay recovery remains actionable on the target without a diagnostic panel", async () => {
@@ -242,9 +243,12 @@ test("autoplay recovery remains actionable on the target without a diagnostic pa
   await click();
   act(() => boundary.events!.playbackBlocked(true));
   expect(container.textContent).toContain("Play call audio");
-  await act(async () => container.querySelector<HTMLButtonElement>('[role="button"]')!.click());
+  const play = Array.from(container.querySelectorAll<HTMLElement>('[role="button"]')).find(
+    (button) => button.textContent === "Play call audio",
+  )!;
+  await act(async () => play.click());
   expect(boundary.play).toHaveBeenCalledTimes(1);
-  expect(container.querySelector('[data-testid="conversation-call-host"]')).toBeNull();
+  expect(container.querySelector('[data-testid="conversation-call-host"]')).not.toBeNull();
 });
 
 test("failure keeps captured identity and recovery without transcript or raw IDs", async () => {
@@ -269,11 +273,25 @@ test("untitled calls use the normal agent fallback, never a raw ID or host name"
   await click();
   render("other");
   const host = container.querySelector('[data-testid="conversation-call-host"]')!;
-  expect(host.textContent).toBe(i18n.t("agentList.fallbackTitle"));
+  expect(host.textContent).toContain(i18n.t("agentList.fallbackTitle"));
   expect(container.querySelector('[aria-label="Return to call with New session"]')).not.toBeNull();
 });
 
-test("disconnected and voice-mode conflicts still disable starting; native has no call action", () => {
+test("native uses the same connecting toggle and compact mute/end strip, then offers retry after ending", async () => {
+  boundary.native = true;
+  render();
+  await click();
+  expect(phone().getAttribute("aria-label")).toBe("Cancel call");
+  const host = container.querySelector('[data-testid="conversation-call-host"]')!;
+  expect(host.textContent).toContain("Original agent");
+  expect(host.querySelector('[aria-label="Mute microphone"]')).not.toBeNull();
+  await click();
+  expect(boundary.stop).toHaveBeenCalledTimes(1);
+  expect(container.textContent).toContain("Call ended");
+  expect(container.textContent).toContain("Call again");
+});
+
+test("disconnected and voice-mode conflicts disable starting on web and native", () => {
   boundary.connected = false;
   render();
   expect(phone().disabled).toBe(true);
@@ -287,5 +305,5 @@ test("disconnected and voice-mode conflicts still disable starting; native has n
   expect(phone().disabled).toBe(true);
   boundary.native = true;
   render();
-  expect(phone()).toBeNull();
+  expect(phone().disabled).toBe(true);
 });

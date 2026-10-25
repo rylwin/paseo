@@ -10,12 +10,18 @@ import { File, Paths } from "expo-file-system";
 import { createPlaybackQueue } from "./playback";
 import { playFile } from "./file-playback";
 import { playPcm16 } from "./pcm";
+import { nativeMicrophoneOwner } from "./microphone-owner";
 
 export function createAudioEngine(
   callbacks: AudioEngineCallbacks,
   options?: AudioEngineOptions,
 ): AudioEngine {
   const native = require("@getpaseo/expo-two-way-audio");
+  let releaseMicrophone: (() => void) | null = null;
+  function releaseCaptureOwnership() {
+    releaseMicrophone?.();
+    releaseMicrophone = null;
+  }
 
   const refs: {
     initialized: boolean;
@@ -63,6 +69,7 @@ export function createAudioEngine(
       }
       const wasCaptureActive = refs.captureActive;
       refs.captureActive = false;
+      releaseCaptureOwnership();
       refs.muted = false;
       callbacks.onVolumeLevel(0);
       if (wasCaptureActive) {
@@ -159,6 +166,8 @@ export function createAudioEngine(
 
   return {
     async initialize() {
+      // Initialization configures the OS audio session even before capture starts.
+      if (!releaseMicrophone) nativeMicrophoneOwner.acquire()();
       await ensureInitialized();
     },
 
@@ -178,6 +187,7 @@ export function createAudioEngine(
         native.tearDown();
         refs.initialized = false;
       }
+      releaseCaptureOwnership();
       microphoneSubscription.remove();
       volumeSubscription.remove();
       interruptionSubscription.remove();
@@ -188,9 +198,15 @@ export function createAudioEngine(
         return;
       }
 
+      const reservation = nativeMicrophoneOwner.acquire();
+      releaseMicrophone = reservation;
       try {
         await ensureMicrophonePermission();
+        if (releaseMicrophone !== reservation || refs.destroyed)
+          throw new Error("Capture cancelled");
         await ensureInitialized();
+        if (releaseMicrophone !== reservation || refs.destroyed)
+          throw new Error("Capture cancelled");
         const isRecording =
           options?.captureMode === "dictation"
             ? native.startDictation()
@@ -202,6 +218,7 @@ export function createAudioEngine(
         }
         refs.captureActive = true;
       } catch (error) {
+        if (releaseMicrophone === reservation) releaseCaptureOwnership();
         const wrapped = error instanceof Error ? error : new Error(String(error));
         callbacks.onError?.(wrapped);
         throw wrapped;
@@ -217,6 +234,7 @@ export function createAudioEngine(
       callbacks.onVolumeLevel(0);
       callbacks.onCaptureAvailabilityChange?.(true);
       releaseSessionIfIdle();
+      releaseCaptureOwnership();
     },
 
     toggleMute() {

@@ -1,6 +1,8 @@
 import { isWeb } from "@/constants/platform";
 import type { CallMedia, MediaEvents } from "./controller";
 
+export const supportsCalls = true;
+
 class BrowserCallMedia implements CallMedia {
   private stopped = false;
   private stream: MediaStream | null = null;
