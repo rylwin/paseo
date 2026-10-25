@@ -125,14 +125,30 @@ Run `npm run test:android --workspace=@getpaseo/app` to prebuild Android and run
 native module unit tests. The app CI job runs this command with the Android
 toolchain.
 
-### Foreground conversation calls
+### Conversation calls
 
 Android uses the shared Pi conversation phone toggle and compact call strip.
-Microphone access is required; Bluetooth access is optional for headset routing.
-Leaving the foreground ends the call and releases its audio resources. Returning
-returns to the idle composer without an ended notice. Failures retain their
-retry action. Ending voice does not stop accepted Pi work. Dictation, legacy
-voice mode, and calls share exclusive microphone ownership.
+Start calls while Paseo is visible. Microphone access and enabled call
+notifications are required; Android 13+ requests notification permission before
+starting audio. Bluetooth access is optional for headset routing. Home and
+screen lock do not intentionally end a service-owned call. The ongoing
+notification names the bound agent, opens its conversation, and offers End call.
+Ending voice does not stop accepted Pi work. Dictation, legacy voice mode, and
+calls share exclusive microphone ownership.
+
+The microphone foreground service owns native track, peer, and route teardown,
+not a JavaScript notification callback. In-app End, notification End, task
+removal, blocked call notifications, audio interruptions, and service
+destruction release that ownership. Returning to Paseo reconciles the strip with
+native state. Normal hangup stays quiet; failures retain their retry action.
+Process death never restores or redials a call.
+
+A foreground service alone does not keep React Native's timers running after
+Activity pause. An owned Headless JS task keeps the existing authenticated
+connection's timers eligible for the call's lifetime; it does not open another
+connection. InCallManager already holds a call-scoped partial wake lock. Do not
+add a second CPU lock or a WiFi lock without screen-off evidence that requires
+it.
 
 Calls default to hands-free speaker unless a Bluetooth or wired headset is
 available. The compact strip's Speaker control switches the handset fallback
@@ -146,11 +162,30 @@ While the native call strip is visible, it owns the top safe-area inset. Its
 content subtree receives a zero top inset so app headers do not apply it again;
 left, right, and bottom insets remain owned by their existing surfaces.
 
-Calls require a rebuilt standalone app with `react-native-webrtc` and
-`react-native-incall-manager`; Expo Go cannot load these modules. There is no
-background-call service, lock-screen call UI, or automatic resume. The config
-plugin removes WebRTC's unused screen-projection service from the Android
-manifest. iOS calls remain disabled.
+Calls require a rebuilt standalone app with `react-native-webrtc`,
+`react-native-incall-manager`, and the local `paseo-call` module; Expo Go cannot
+load these modules. The WebRTC patch exposes an explicit native peer identifier
+for ownership registration before negotiation. Keep the patch and native module
+in sync when upgrading WebRTC. The call service declares only the `microphone`
+foreground-service type; it does not use MediaProjection, phone accounts, or
+full-screen lock-screen UI. The config plugin removes WebRTC's unused
+screen-projection service. Existing Expo audio playback declarations are
+separate from conversation calls. iOS calls remain disabled.
+
+Run focused native lifecycle tests from `packages/app/android`:
+
+```bash
+./gradlew :paseo-call:testReleaseUnitTest --no-daemon --max-workers=1 \
+  -Dorg.gradle.parallel=false
+```
+
+JVM service lifecycle tests do not prove background audio or signaling. Before
+promoting a draft APK, test Home, another app, and screen lock for longer than
+the socket heartbeat interval with real microphone capture, remote playback, and
+provider events. Verify notification End while JS is stalled releases the mic,
+then resume and confirm the strip is no longer connected. Also check task
+removal, denied/revoked permissions, incoming phone calls, and headset routing.
+An emulator's translated ARM64 install is not physical-device audio evidence.
 
 ### Diagnostic logs without ADB
 

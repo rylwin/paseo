@@ -1,0 +1,33 @@
+apply plugin: 'com.android.library'
+
+group = 'sh.paseo.call'
+version = '0.1.0'
+
+def expoModulesCorePlugin = new File(project(":expo-modules-core").projectDir.absolutePath, "ExpoModulesCorePlugin.gradle")
+apply from: expoModulesCorePlugin
+applyKotlinExpoModulesCorePlugin()
+useCoreDependencies()
+useExpoPublishing()
+useDefaultAndroidSdkVersions()
+
+android {
+  namespace "sh.paseo.call"
+  testOptions {
+    unitTests.includeAndroidResources = true
+  }
+}
+
+// Robolectric's API 36 framework requires Java 21, even though Android bytecode targets 17.
+tasks.withType(Test).configureEach {
+  javaLauncher = javaToolchains.launcherFor {
+    languageVersion = JavaLanguageVersion.of(21)
+  }
+}
+
+dependencies {
+  implementation "com.facebook.react:react-android"
+  implementation project(':react-native-webrtc')
+  implementation project(':react-native-incall-manager')
+  testImplementation "junit:junit:4.13.2"
+  testImplementation "org.robolectric:robolectric:4.16.1"
+}

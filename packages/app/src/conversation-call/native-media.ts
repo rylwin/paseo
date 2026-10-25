@@ -27,6 +27,7 @@ export interface NativeMicrophone {
   openPeer(): NativePeer;
 }
 export interface NativeMediaDependencies {
+  background?: { start(): Promise<void>; stop(): void };
   reserveMicrophone(): () => void;
   schedule(callback: () => void, ms: number): () => void;
   requestPermission(): Promise<boolean>;
@@ -62,6 +63,7 @@ export class NativeCallMedia implements CallMedia {
     private readonly events: MediaEvents,
   ) {}
   async offer(): Promise<string> {
+    if (this.stopped) throw new Error("Call ended");
     this.releaseMicrophone = this.dependencies.reserveMicrophone();
     if (!(await this.dependencies.requestPermission())) {
       throw new Error(
@@ -69,6 +71,10 @@ export class NativeCallMedia implements CallMedia {
       );
     }
     if (this.stopped) throw new Error("Call ended");
+    if (this.dependencies.background) {
+      await this.dependencies.background.start();
+      if (this.stopped) throw new Error("Call ended");
+    }
     this.cancelDeadline = this.dependencies.schedule(() => {
       if (!this.stopped)
         this.events.failed("Call connection timed out. Check the host and try again.");
@@ -140,6 +146,7 @@ export class NativeCallMedia implements CallMedia {
     this.microphone = null;
     if (this.routed) this.dependencies.stopAudio();
     this.routed = false;
+    this.dependencies.background?.stop();
     this.releaseMicrophone();
   }
 }

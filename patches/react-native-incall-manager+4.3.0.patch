@@ -2,7 +2,21 @@ diff --git a/node_modules/react-native-incall-manager/android/src/main/java/com/
 index b82ccb9..70cd5fa 100644
 --- a/node_modules/react-native-incall-manager/android/src/main/java/com/zxcpoiu/incallmanager/InCallManagerModule.java
 +++ b/node_modules/react-native-incall-manager/android/src/main/java/com/zxcpoiu/incallmanager/InCallManagerModule.java
-@@ -2037,6 +2037,22 @@ public class InCallManagerModule extends ReactContextBaseJavaModule implements L
+@@ -495,3 +495,13 @@ public class InCallManagerModule extends ReactContextBaseJavaModule implements L
++    private Runnable callInterruptionListener;
++
++    // Native call-service owner must release microphone/playback without waiting for JS.
++    public void setCallInterruptionListener(Runnable listener) {
++        runOnLifecycleThread(() -> callInterruptionListener = listener);
++    }
++
+     private void handleAudioFocusChange(int focusChange) {
+         audioLifecycleState.onFocusChange(focusChange);
++        if (focusChange < 0 && callInterruptionListener != null) {
++            callInterruptionListener.run();
++        }
+         String focusChangeStr;
+@@ -2037,6 +2047,22 @@ public class InCallManagerModule extends ReactContextBaseJavaModule implements L
  
  
  

@@ -80,6 +80,43 @@ function fixture() {
   return { media, dependencies, track, calls, microphone, peer, listeners, timers };
 }
 
+test("a call already stopped before offer cannot reserve the microphone or request permission", async () => {
+  const f = fixture();
+  f.dependencies.reserveMicrophone = () => {
+    f.calls.push("reserved");
+    return () => {};
+  };
+  f.dependencies.requestPermission = async () => {
+    f.calls.push("permission");
+    return true;
+  };
+  f.media.stop();
+  await expect(f.media.offer()).rejects.toThrow("Call ended");
+  expect(f.calls).toEqual([]);
+});
+
+test("cancel while foreground service starts never acquires audio and stops the late service", async () => {
+  const f = fixture();
+  f.dependencies.requestPermission = async () => true;
+  let ready!: () => void;
+  f.dependencies.background = {
+    start: () =>
+      new Promise<void>((resolve) => {
+        ready = resolve;
+      }),
+    stop: () => {
+      f.calls.push("service-stop");
+    },
+  };
+  const offering = f.media.offer();
+  await Promise.resolve();
+  expect(f.calls).toEqual([]);
+  f.media.stop();
+  ready();
+  await expect(offering).rejects.toThrow("Call ended");
+  expect(f.calls).toEqual(["service-stop"]);
+});
+
 test("native negotiation sends audio, applies answer, mutes tracks and releases resources once", async () => {
   const f = fixture();
   f.dependencies.requestPermission = async () => true;

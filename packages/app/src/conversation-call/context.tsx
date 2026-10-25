@@ -8,7 +8,7 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { AppState, Platform, Text, View } from "react-native";
+import { Platform, Text, View } from "react-native";
 import { SafeAreaInsetsContext, useSafeAreaInsets } from "react-native-safe-area-context";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import {
@@ -38,7 +38,6 @@ import { useVoiceOptional } from "@/contexts/voice-context";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { ConversationCallController, type CallSignaling, type CallTarget } from "./controller";
 import { createCallMedia, supportsCalls } from "./media";
-import { bindForegroundCall } from "./foreground";
 
 const CallContext = createContext<ConversationCallController | null>(null);
 const ThemedMic = withUnistyles(Mic, (theme) => ({
@@ -133,17 +132,6 @@ export function ConversationCallProvider({ children }: { children: ReactNode }) 
     [insets, ownsTopInset],
   );
   useEffect(() => () => controller.end(), [controller]);
-  useEffect(() => {
-    if (isWeb || !supportsCalls) return;
-    return bindForegroundCall({
-      subscribe(listener) {
-        const subscription = AppState.addEventListener("change", listener);
-        return () => subscription.remove();
-      },
-      getPhase: () => controller.getSnapshot().phase,
-      end: () => controller.end(),
-    });
-  }, [controller]);
   return (
     <CallContext.Provider value={controller}>
       {supportsCalls ? (
@@ -381,10 +369,7 @@ function ConversationCallHost() {
           </Text>
         ) : null}
         {snapshot.phase === "ended" ? (
-          <Alert
-            title="Call ended"
-            description="Calls end when Paseo leaves the foreground. Pi work continues independently."
-          >
+          <Alert title="Call ended" description="Pi work continues independently.">
             <View style={styles.controls}>
               <Button onPress={retry} variant="outline">
                 Call again

@@ -103,6 +103,45 @@ test("speaker state follows native reports, not button presses, and late reports
   await starting;
 });
 
+test("media receives the immutable owned call identity before acquisition", async () => {
+  let identity: unknown;
+  const f = fixture();
+  const controller = new ConversationCallController({
+    newId: () => "owned-call",
+    createMedia(_events, captured) {
+      identity = captured;
+      return {
+        async offer() {
+          throw new Error("stop before signaling");
+        },
+        async answer() {},
+        mute() {},
+        async play() {
+          return true;
+        },
+        stop() {},
+      };
+    },
+  });
+  await controller.start(target, f.signaling);
+  expect(identity).toEqual({ callId: "owned-call", target });
+});
+
+test("native notification end quietly stops voice without canceling accepted Pi work or redialing", async () => {
+  const f = fixture();
+  const starting = f.controller.start(target, f.signaling);
+  await Promise.resolve();
+  f.events.ended?.();
+  expect(f.controller.getSnapshot()).toMatchObject({ phase: "ended", error: "" });
+  expect(f.stopped).toBe(1);
+  expect(f.ended).toEqual(["call1"]);
+  f.answer({ sdp: "late answer" });
+  await starting;
+  f.events.connected();
+  expect(f.controller.getSnapshot()).toMatchObject({ phase: "ended" });
+  expect(f.offers).toEqual(["pi1"]);
+});
+
 test("unsupported hosts fail visibly before acquiring a microphone", async () => {
   const f = fixture();
   await f.controller.start(target, { ...f.signaling, supported: false });

@@ -15,6 +15,7 @@ export interface CallMedia {
   stop(): void;
 }
 export interface MediaEvents {
+  ended?(): void;
   connected(): void;
   failed(message: string): void;
   playbackBlocked(blocked: boolean): void;
@@ -27,8 +28,12 @@ export interface CallSignaling {
   subscribe(listener: (callId: string, event: ConversationCallEvent) => void): () => void;
   disconnected(listener: () => void): () => void;
 }
+export interface CallIdentity {
+  callId: string;
+  target: CallTarget;
+}
 interface Dependencies {
-  createMedia(events: MediaEvents): CallMedia;
+  createMedia(events: MediaEvents, identity: CallIdentity): CallMedia;
   newId(): string;
 }
 export type CallSnapshot =
@@ -95,30 +100,37 @@ export class ConversationCallController {
       });
       return;
     }
-    const media = this.dependencies.createMedia({
-      connected: () => {
-        if (this.active?.media === media) this.update({ phase: "connected" });
+    const callId = this.dependencies.newId();
+    const media = this.dependencies.createMedia(
+      {
+        ended: () => {
+          if (this.active?.media === media) this.end();
+        },
+        connected: () => {
+          if (this.active?.media === media) this.update({ phase: "connected" });
+        },
+        failed: (message) => {
+          if (this.active?.media === media) this.fail(message);
+        },
+        playbackBlocked: (blocked) => {
+          if (this.active?.media === media) this.update({ playbackBlocked: blocked });
+        },
+        audioOutput: (audioOutput) => {
+          if (this.active?.media === media) this.update({ audioOutput });
+        },
       },
-      failed: (message) => {
-        if (this.active?.media === media) this.fail(message);
-      },
-      playbackBlocked: (blocked) => {
-        if (this.active?.media === media) this.update({ playbackBlocked: blocked });
-      },
-      audioOutput: (audioOutput) => {
-        if (this.active?.media === media) this.update({ audioOutput });
-      },
-    });
+      { callId, target: capturedTarget },
+    );
     const call: ActiveCall = {
-      callId: this.dependencies.newId(),
+      callId,
       signaling,
       media,
       requested: false,
       unsubscribe: () => {},
     };
     this.active = call;
-    const unsubscribe = signaling.subscribe((callId, event) => {
-      if (this.active !== call || callId !== call.callId) return;
+    const unsubscribe = signaling.subscribe((eventCallId, event) => {
+      if (this.active !== call || eventCallId !== call.callId) return;
       if (event.kind === "transcript") this.update({ transcript: event.text });
       if (event.kind === "delegation") this.update({ delegation: event.text });
       if (event.kind === "error") this.fail(event.message);
