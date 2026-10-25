@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { realtimeStartParams } from "./call-preview-runtime.mjs";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -6,6 +7,20 @@ import { gunzipSync } from "node:zlib";
 import { loadPreviewAsset } from "./call-preview-static.mjs";
 import { BoundPiSession, TRIAL_AGENT } from "./call-preview-pi.mjs";
 import { admitUpgrade, validateTool, authenticate, authenticateStart } from "./call-preview.mjs";
+
+describe("live acknowledgment", () => {
+  it("enables native acknowledgment without overriding the stock Voice prompt", () => {
+    const params = realtimeStartParams("trial-thread", "v=0\r\n");
+    expect(params).toMatchObject({
+      threadId: "trial-thread",
+      transport: { type: "webrtc", sdp: "v=0\r\n" },
+      delegationAckFiller: true,
+      includeStartupContext: false,
+    });
+    expect(params).not.toHaveProperty("prompt");
+    expect(params).not.toHaveProperty("initialItems");
+  });
+});
 
 describe("built preview assets", () => {
   it("rejects encoded traversal rather than reading outside the build", async () => {
