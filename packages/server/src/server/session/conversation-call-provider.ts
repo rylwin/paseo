@@ -60,8 +60,9 @@ export class CodexConversationCall implements CallProvider {
   private readonly onAbort = () => {
     void this.stop();
   };
-  private toolBusy = false;
-  private activeTool: { requestId: number; observation: AbortController } | null = null;
+  private requestBusy = false;
+  private catchupBusy = false;
+  private readonly activeTools = new Map<number, AbortController>();
   private readonly toolIds = new Set<string>();
   // Only successful startup context and catchup results advance this call-local cursor.
   // History and request/status may overlap; none implies that the user heard anything.
@@ -88,9 +89,9 @@ export class CodexConversationCall implements CallProvider {
         if (
           resolved.success &&
           (!resolved.data.threadId || resolved.data.threadId === this.threadId) &&
-          this.activeTool?.requestId === resolved.data.requestId
+          this.activeTools.has(resolved.data.requestId)
         )
-          this.activeTool.observation.abort();
+          this.activeTools.get(resolved.data.requestId)?.abort();
         return;
       }
       const scope = z.object({ threadId: z.string() }).safeParse(params);
@@ -349,15 +350,23 @@ export class CodexConversationCall implements CallProvider {
 
   private async tool(params: unknown, requestId: number) {
     const parsed = ToolSchema.safeParse(params);
-    const denied =
-      !parsed.success ||
-      !this.ready ||
-      this.stopped ||
-      this.toolBusy ||
-      this.toolIds.has(parsed.data.callId);
-    if (denied || !parsed.success)
-      return toolResult(false, "Operation not allowed or already pending");
+    if (!parsed.success) return toolResult(false, "Invalid bound-agent tool request");
+    if (!this.ready || this.stopped) return toolResult(false, "Call is not active");
     if (parsed.data.threadId !== this.threadId) return toolResult(false, "Wrong call thread");
+    if (this.toolIds.has(parsed.data.callId) || this.activeTools.has(requestId))
+      return toolResult(false, "Duplicate tool request; no operation was repeated");
+    const mutating = parsed.data.tool === "paseo_pi_request";
+    const catchup = parsed.data.tool === "paseo_pi_catchup";
+    if (mutating && this.requestBusy)
+      return toolResult(
+        false,
+        "A Pi request observation is pending. Use status, history, or catchup to read existing replies without resending.",
+      );
+    if (catchup && this.catchupBusy)
+      return toolResult(
+        false,
+        "A catchup read is pending. Status and history remain available; retry catchup after that read.",
+      );
     let args = parsed.data.arguments;
     try {
       if (typeof args === "string") args = JSON.parse(args);
@@ -366,37 +375,47 @@ export class CodexConversationCall implements CallProvider {
     }
     if (!ToolInputs[parsed.data.tool].safeParse(args).success)
       return toolResult(false, "Invalid bound-agent arguments");
-    this.toolIds.add(parsed.data.callId);
-    this.toolBusy = true;
+    return this.observeTool(parsed.data, args, requestId);
+  }
+
+  private async observeTool(data: z.infer<typeof ToolSchema>, args: unknown, requestId: number) {
+    const mutating = data.tool === "paseo_pi_request";
+    const catchup = data.tool === "paseo_pi_catchup";
+    this.toolIds.add(data.callId);
+    if (mutating) this.requestBusy = true;
+    if (catchup) this.catchupBusy = true;
     const observation = new AbortController();
-    this.activeTool = { requestId, observation };
+    this.activeTools.set(requestId, observation);
     const signal = AbortSignal.any([this.options.signal, observation.signal]);
     try {
-      this.options.emit({
-        kind: "delegation",
-        status: "working",
-        text: "Waiting for the bound Pi agent",
-      });
-      const { text, cursor, epoch } = await this.executeTool(parsed.data.tool, args, signal);
+      if (mutating)
+        this.options.emit({
+          kind: "delegation",
+          status: "working",
+          text: "Observing the bound Pi request; read-only tools remain available",
+        });
+      const { text, cursor, epoch } = await this.executeTool(data.tool, args, signal);
       signal.throwIfAborted();
       if (this.stopped) throw new Error("Call ended");
       const result = toolResult(true, text);
       this.options.emit({ kind: "delegation", status: "answered", text: text.slice(0, 12000) });
       signal.throwIfAborted();
       if (this.stopped) throw new Error("Call ended");
-      this.deliveredCursor = cursor;
-      this.deliveredEpoch = epoch;
+      if (catchup) {
+        this.deliveredCursor = cursor;
+        this.deliveredEpoch = epoch;
+      }
       return result;
     } catch {
-      const text =
-        parsed.data.tool === "paseo_pi_history" || parsed.data.tool === "paseo_pi_catchup"
-          ? "Could not read the bound Pi conversation. No catchup cursor was advanced. Try history, or start a new call if the timeline changed."
-          : "Pi operation could not be confirmed or timed out. Pi may still be working or waiting for permissions. Ask for status; do not automatically resend.";
+      const text = mutating
+        ? "Pi request observation ended or failed. This does not cancel accepted Pi work and does not show whether its answer is available. Read status, history, or catchup before reporting progress; do not resend."
+        : "Could not retrieve the bound Pi conversation or status. This is not evidence of a missing answer or a pending task. No catchup cursor was advanced. Retry a read, or start a new call if the timeline changed.";
       this.options.emit({ kind: "delegation", status: "failed", text });
       return toolResult(false, text);
     } finally {
-      this.toolBusy = false;
-      this.activeTool = null;
+      if (mutating) this.requestBusy = false;
+      if (catchup) this.catchupBusy = false;
+      this.activeTools.delete(requestId);
     }
   }
 
@@ -445,7 +464,7 @@ export class CodexConversationCall implements CallProvider {
     if (this.stopping) return this.stopping;
     this.stopped = true;
     this.summaryAbort.abort();
-    this.activeTool?.observation.abort();
+    for (const observation of this.activeTools.values()) observation.abort();
     this.rejectStart?.(new Error("Call ended"));
     this.options.signal.removeEventListener("abort", this.onAbort);
     if (this.threadId) this.rpc.notify("thread/realtime/stop", { threadId: this.threadId });

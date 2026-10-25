@@ -4,6 +4,80 @@ import { conversationHistory } from "./conversation-call-history.js";
 import { CodexConversationCall } from "./conversation-call-provider.js";
 import { MemoryCallRpc } from "./test-utils/call-rpc.js";
 
+test("read cancellation is request-scoped and a slow status cannot rewind catchup", async () => {
+  const rpc = new MemoryCallRpc();
+  let releaseStatus!: () => void;
+  const statusGate = new Promise<void>((resolve) => {
+    releaseStatus = resolve;
+  });
+  let releaseHistory!: () => void;
+  const historyGate = new Promise<void>((resolve) => {
+    releaseHistory = resolve;
+  });
+  let historySignal: AbortSignal | undefined;
+  let requestSignal: AbortSignal | undefined;
+  const rows: AgentTimelineRow[] = [
+    {
+      seq: 1,
+      timestamp: "2026-01-01T00:00:00Z",
+      item: { type: "assistant_message", text: "startup" },
+    },
+  ];
+  const call = new CodexConversationCall(rpc, {
+    agent: {
+      title: "Pi",
+      cwd: "/tmp",
+      async request(_instruction, signal) {
+        requestSignal = signal;
+        await new Promise<void>((_resolve, reject) =>
+          signal.addEventListener("abort", () => reject(new Error("canceled")), { once: true }),
+        );
+        return "unreachable";
+      },
+      async status() {
+        await statusGate;
+        return "Pi status: running";
+      },
+      async history(input, signal) {
+        if (input.before === 2) {
+          historySignal = signal;
+          await historyGate;
+        }
+        signal.throwIfAborted();
+        return { ...conversationHistory(rows, input), epoch: "original" };
+      },
+    },
+    emit() {},
+    signal: new AbortController().signal,
+  });
+  await call.start("offer");
+  const tool = (name: string, id: number, args = {}) =>
+    rpc.tool({ threadId: "voice-thread", callId: String(id), tool: name, arguments: args }, id);
+  const request = tool("paseo_pi_request", 1, { instruction: "one task" });
+  const slowStatus = tool("paseo_pi_status", 2);
+  const slowHistory = tool("paseo_pi_history", 3, { before: 2 });
+  rows.push({
+    seq: 5,
+    timestamp: "2026-01-01T00:00:01Z",
+    item: { type: "assistant_message", text: "posted later" },
+  });
+  expect(await tool("paseo_pi_catchup", 4)).toMatchObject({ success: true });
+  rpc.notifyHandler("serverRequest/resolved", { threadId: "voice-thread", requestId: 1 });
+  expect(await request).toMatchObject({ success: false });
+  expect(requestSignal?.aborted).toBe(true);
+  expect(historySignal?.aborted).toBe(false);
+  releaseHistory();
+  expect(await slowHistory).toMatchObject({ success: true });
+  releaseStatus();
+  expect(await slowStatus).toMatchObject({ success: true });
+  const result = (await tool("paseo_pi_catchup", 5)) as { contentItems: Array<{ text: string }> };
+  expect(JSON.parse(result.contentItems[0]!.text)).toMatchObject({
+    messages: [],
+    deliveredCursor: 5,
+  });
+  await call.stop();
+});
+
 test("catchup continues after quiet startup, preserves bounded pages, and history never moves its cursor", async () => {
   const rows: AgentTimelineRow[] = [];
   function append(text: string, user = false) {

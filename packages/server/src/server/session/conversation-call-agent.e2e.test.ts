@@ -117,6 +117,89 @@ test("voice barge-in, control request cancellation and hangup preserve Pi work; 
   }
 });
 
+test("reads an existing answer while a real Pi request observation remains pending without resending", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let accepted!: () => void;
+  const started = new Promise<void>((resolve) => {
+    accepted = resolve;
+  });
+  const prompts: unknown[] = [];
+  const host = await createTestPaseoDaemon({
+    mcpEnabled: false,
+    agentClients: {
+      pi: createTestAgentClient("pi", {
+        onStartTurn(prompt) {
+          prompts.push(prompt);
+        },
+        async beforeTurnComplete() {
+          accepted();
+          await gate;
+        },
+      }),
+    },
+  });
+  const client = new DaemonClient({ url: `ws://127.0.0.1:${host.port}/ws`, appVersion: "0.23.0" });
+  const rpc = new MemoryCallRpc();
+  let voice: CodexConversationCall | undefined;
+  try {
+    await client.connect();
+    await client.fetchAgents({ subscribe: {} });
+    const pi = await client.createAgent({ provider: "pi", cwd: host.paseoHome });
+    const bound = await resolveCallAgent({
+      agentId: pi.id,
+      agentManager: host.daemon.agentManager,
+      agentStorage: host.daemon.agentStorage,
+      allows: () => true,
+      logger: pino({ level: "silent" }),
+    });
+    voice = new CodexConversationCall(rpc, {
+      agent: bound,
+      emit() {},
+      signal: new AbortController().signal,
+    });
+    await voice.start("offer");
+    const waiting = rpc.tool(
+      {
+        threadId: "voice-thread",
+        callId: "request",
+        tool: "paseo_pi_request",
+        arguments: { instruction: "Respond with exactly: Existing answer" },
+      },
+      1,
+    );
+    await started;
+    await host.daemon.agentManager.appendTimelineItem(pi.id, {
+      type: "assistant_message",
+      text: "Already posted answer while request is pending",
+    });
+    for (const [index, tool] of [
+      "paseo_pi_status",
+      "paseo_pi_history",
+      "paseo_pi_catchup",
+    ].entries()) {
+      const result = await rpc.tool(
+        { threadId: "voice-thread", callId: tool, tool, arguments: {} },
+        index + 2,
+      );
+      expect(result).toMatchObject({ success: true });
+      expect(JSON.stringify(result)).toContain("Already posted answer while request is pending");
+    }
+    expect(prompts).toEqual(["Respond with exactly: Existing answer"]);
+    expect(host.daemon.agentManager.getAgent(pi.id)?.lifecycle).toBe("running");
+    rpc.notifyHandler("serverRequest/resolved", { threadId: "voice-thread", requestId: 1 });
+    expect(await waiting).toMatchObject({ success: false });
+    expect(host.daemon.agentManager.getAgent(pi.id)?.lifecycle).toBe("running");
+  } finally {
+    release();
+    await voice?.stop();
+    await client.close();
+    await host.close();
+  }
+});
+
 test("binds only an eligible live Pi under the caller's current workspace authority", async () => {
   const host = await createTestPaseoDaemon({
     mcpEnabled: false,
