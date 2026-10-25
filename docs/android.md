@@ -130,9 +130,9 @@ toolchain.
 Android uses the shared Pi conversation phone toggle and compact call strip.
 Microphone access is required; Bluetooth access is optional for headset routing.
 Leaving the foreground ends the call and releases its audio resources. Returning
-shows an ended state with a retry action. Ending voice does not stop accepted Pi
-work. Dictation, legacy voice mode, and calls share exclusive microphone
-ownership.
+returns to the idle composer without an ended notice. Failures retain their
+retry action. Ending voice does not stop accepted Pi work. Dictation, legacy
+voice mode, and calls share exclusive microphone ownership.
 
 Calls default to hands-free speaker unless a Bluetooth or wired headset is
 available. The compact strip's Speaker control switches the handset fallback

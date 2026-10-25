@@ -8,7 +8,7 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { AppState, Text, View } from "react-native";
+import { AppState, Platform, Text, View } from "react-native";
 import { SafeAreaInsetsContext, useSafeAreaInsets } from "react-native-safe-area-context";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import {
@@ -123,7 +123,11 @@ export function ConversationCallProvider({ children }: { children: ReactNode }) 
     controller.getSnapshot,
   );
   const insets = useSafeAreaInsets();
-  const ownsTopInset = !isWeb && supportsCalls && snapshot.phase !== "idle";
+  const ownsTopInset =
+    !isWeb &&
+    supportsCalls &&
+    snapshot.phase !== "idle" &&
+    !(Platform.OS === "android" && snapshot.phase === "ended");
   const contentInsets = useMemo(
     () => (ownsTopInset ? { ...insets, top: 0 } : insets),
     [insets, ownsTopInset],
@@ -336,7 +340,11 @@ function ConversationCallHost() {
     ),
     [targetLabel],
   );
-  if (!supportsCalls || snapshot.phase === "idle" || (isWeb && snapshot.phase === "ended"))
+  if (
+    !supportsCalls ||
+    snapshot.phase === "idle" ||
+    ((isWeb || Platform.OS === "android") && snapshot.phase === "ended")
+  )
     return null;
   const active = snapshot.phase === "connecting" || snapshot.phase === "connected";
   return (

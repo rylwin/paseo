@@ -20,6 +20,18 @@ const boundary = vi.hoisted(() => ({
   stop: vi.fn(),
   start: vi.fn(),
 }));
+vi.mock("react-native", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react-native")>();
+  return {
+    ...actual,
+    Platform: {
+      ...actual.Platform,
+      get OS() {
+        return boundary.native ? "android" : "web";
+      },
+    },
+  };
+});
 vi.mock("react-native-safe-area-context", async (importOriginal) => {
   const actual = await importOriginal<object>();
   const { createContext, useContext } = await import("react");
@@ -271,7 +283,8 @@ test("compact strip is always present and identity returns to the captured agent
   expect(container.querySelector('[data-testid="conversation-call-host"]')).not.toBeNull();
 });
 
-test("autoplay recovery remains actionable on the target without a diagnostic panel", async () => {
+test.each([false, true])("autoplay recovery remains actionable (native=%s)", async (native) => {
+  boundary.native = native;
   render();
   await click();
   act(() => boundary.events!.playbackBlocked(true));
@@ -284,21 +297,25 @@ test("autoplay recovery remains actionable on the target without a diagnostic pa
   expect(container.querySelector('[data-testid="conversation-call-host"]')).not.toBeNull();
 });
 
-test("failure keeps captured identity and recovery without transcript or raw IDs", async () => {
-  render();
-  await click();
-  act(() => boundary.events!.failed("Microphone permission denied"));
-  render("other");
-  const host = container.querySelector('[data-testid="conversation-call-host"]')!;
-  expect(host.textContent).toContain("Original agent");
-  expect(host.textContent).toContain("Microphone permission denied");
-  expect(host.textContent).not.toMatch(/Voice interruptions|GPT-Live call|delegat|transcript/);
-  const retry = Array.from(container.querySelectorAll<HTMLElement>('[role="button"]')).find(
-    (button) => button.textContent === "Call again",
-  )!;
-  await act(async () => retry.click());
-  expect(boundary.start).toHaveBeenLastCalledWith(expect.objectContaining({ agentId: "pi" }));
-});
+test.each([false, true])(
+  "permission failure keeps identity and recovery (native=%s)",
+  async (native) => {
+    boundary.native = native;
+    render();
+    await click();
+    act(() => boundary.events!.failed("Microphone permission denied"));
+    render("other");
+    const host = container.querySelector('[data-testid="conversation-call-host"]')!;
+    expect(host.textContent).toContain("Original agent");
+    expect(host.textContent).toContain("Microphone permission denied");
+    expect(host.textContent).not.toMatch(/Voice interruptions|GPT-Live call|delegat|transcript/);
+    const retry = Array.from(container.querySelectorAll<HTMLElement>('[role="button"]')).find(
+      (button) => button.textContent === "Call again",
+    )!;
+    await act(async () => retry.click());
+    expect(boundary.start).toHaveBeenLastCalledWith(expect.objectContaining({ agentId: "pi" }));
+  },
+);
 
 test("untitled calls use the normal agent fallback, never a raw ID or host name", async () => {
   boundary.title = undefined;
@@ -310,7 +327,7 @@ test("untitled calls use the normal agent fallback, never a raw ID or host name"
   expect(container.querySelector('[aria-label="Return to call with New session"]')).not.toBeNull();
 });
 
-test("native uses the same connecting toggle and compact mute/end strip, then offers retry after ending", async () => {
+test("Android keeps the active strip but ends silently with an idle composer", async () => {
   boundary.native = true;
   render();
   await click();
@@ -320,8 +337,28 @@ test("native uses the same connecting toggle and compact mute/end strip, then of
   expect(host.querySelector('[aria-label="Mute microphone"]')).not.toBeNull();
   await click();
   expect(boundary.stop).toHaveBeenCalledTimes(1);
-  expect(container.textContent).toContain("Call ended");
-  expect(container.textContent).toContain("Call again");
+  expect(boundary.end).toHaveBeenCalledTimes(1);
+  expect(container.querySelector('[data-testid="conversation-call-host"]')).toBeNull();
+  expect(container.textContent).not.toContain("Call ended");
+  expect(container.textContent).not.toContain("Call again");
+  expect(phone().getAttribute("aria-selected")).toBe("false");
+  expect(phone().getAttribute("aria-label")).toBe("Call this Pi agent with GPT-Live");
+});
+
+test("Android connected call hangup removes the strip without an ended notice", async () => {
+  boundary.native = true;
+  render();
+  await click();
+  await act(async () => resolveStart({ sdp: "answer" }));
+  act(() => boundary.events!.connected());
+  const host = container.querySelector('[data-testid="conversation-call-host"]')!;
+  expect(host.querySelector('[aria-label="Mute microphone"]')).not.toBeNull();
+  await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="End call"]')!.click());
+  expect(container.querySelector('[data-testid="conversation-call-host"]')).toBeNull();
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+  expect(boundary.stop).toHaveBeenCalledTimes(1);
+  expect(boundary.end).toHaveBeenCalledTimes(1);
+  expect(phone().getAttribute("aria-selected")).toBe("false");
 });
 
 test("native speaker control reflects actual routes, waits for acknowledgement and preserves headset output", async () => {
@@ -395,10 +432,6 @@ test("native call strip owns the top inset once and updates after rotation, then
   expect(safeArea().style.paddingRight).toBe("8px");
   expect(navigationInsets()).toEqual({ top: 0, bottom: 12, left: 30, right: 8 });
   await click();
-  const dismiss = Array.from(container.querySelectorAll<HTMLElement>('[role="button"]')).find(
-    (button) => button.textContent === "Dismiss call",
-  )!;
-  act(() => dismiss.click());
   render();
   expect(safeArea()).toBeNull();
   expect(navigationInsets().top).toBe(24);
