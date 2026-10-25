@@ -13,8 +13,9 @@ export const initialLiveCall: LiveCallSnapshot = {
   muted: false,
   playbackBlocked: false,
   error: "",
-  identity: "titanium / PHONE-CALL-TRIAL-MARKER-ONLY",
-  pi: "Only the harmless Pi marker test is authorized",
+  identity:
+    "titanium / PHONE-CALL-PASEO-CODING\ne60df84c-20d9-4629-af7c-5f1b60ae5f24\n/tmp/paseo-call-prototype-20260719",
+  pi: "Ready for coding questions and requests in the bound Pi session",
   transcript: "",
 };
 
@@ -150,13 +151,15 @@ export class BrowserLiveCall {
       await peer.setRemoteDescription({ type: "answer", sdp: message.sdp });
     if (message.type === "error") this.fail(String(message.message).slice(0, 240));
     if (message.type === "identity")
-      this.update({ identity: `${message.host} / ${message.title}\n${message.agentId}` });
+      this.update({
+        identity: `${message.host} / ${message.title}\n${message.agentId}\n${message.cwd}`,
+      });
     if (message.type === "pi")
       this.update({
         pi:
           message.status === "working"
-            ? "Pi is running the harmless marker test..."
-            : String(message.text).slice(0, 300),
+            ? "Waiting for the bound Pi session..."
+            : String(message.text).slice(0, 12000),
       });
     if (message.type === "transcript" && message.text)
       this.update({ transcript: String(message.text).slice(0, 2000) });

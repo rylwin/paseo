@@ -79,10 +79,14 @@ PASEO_DEV_RESET_HOME=1 npm run dev            # clear and reseed the derived wor
 ### Browser call trial (development only)
 
 The call prototype uses a separate localhost bridge, not the daemon voice
-protocol. Keep it on loopback. It delegates only the harmless marker test to the
-fixed, labeled Pi session in `scripts/call-preview-runtime.mjs`. It cannot
-select other agents or send caller/model text to Pi. If that session is deleted,
-create and explicitly authorize a replacement before changing the fixed ID.
+protocol. Keep it on loopback. It forwards coding questions and instructions to
+the fixed, labeled Pi session in `scripts/call-preview-pi.mjs`, whose cwd and ID
+are visible before calling. Pi retains ordinary provider permissions, including
+file changes the user requests. The bridge cannot select other agents. If the
+session is deleted, create and explicitly authorize a clean replacement before
+changing the fixed ID. Unset inherited `PASEO_AGENT_ID`, `PASEO_AGENT_CWD`,
+`PI_SESSION_FILE`, and `PI_SESSION_ID` when creating it; verify cwd and absence
+of a parent before use.
 
 Start Metro from this checkout:
 
@@ -111,10 +115,11 @@ mount; the token is kept only in page memory, not browser storage. Restarting
 the bridge rotates the token. New calls stop being admitted after two hours. Do
 not put this token in logs, query parameters, committed files, or public links.
 
-Tap **Start call**, allow microphone access, then ask: "Run the harmless Pi
-marker test and tell me its answer." If the browser blocks autoplay, tap **Play
-call audio**. Keep the page foregrounded. End the call before closing the tab.
-Delete the labeled test Pi session with
+Tap **Start call**, allow microphone access, then ask a coding question or task.
+For a read-only first check: "Ask Pi for its working directory and explain
+scripts/call-preview.mjs without changing files." If the browser blocks
+autoplay, tap **Play call audio**. Keep the page foregrounded. End the call
+before closing the tab. Delete the labeled test Pi session with
 `paseo delete <fixed-test-agent-id> --json` after the trial; ending a call does
 not delete it.
 
@@ -123,22 +128,27 @@ not delete it.
 - The operator must already be authorized to use the local Codex login and the
   existing Paseo CLI connection. The bridge uses those existing credentials; it
   does not bypass daemon admission or expose the daemon's general API.
-- The preview token delegates only this trial's fixed marker operation and live
-  audio session. Tailnet membership alone grants no bridge authority. Both exact
-  Origin/Host admission and the scoped token are required before starting an
-  app-server. There is no CORS permission or arbitrary WebSocket proxy.
+- The preview token delegates coding requests, status/reply reading, and live
+  audio for the one bound Pi session, not general daemon access. Tailnet
+  membership alone grants no bridge authority. Both exact Origin/Host admission
+  and the scoped token are required before starting an app-server. There is no
+  CORS permission or arbitrary WebSocket proxy.
 - Trust all JavaScript served by this development preview. Same-origin code can
   use its in-memory token. Do not host untrusted content on this origin. This is
   a trusted-user preview, not a production permission or multi-user design.
 - Browser microphone and remote voice audio use direct WebRTC to OpenAI. Codex
   auth stays on the host; no provider token or general app-server RPC reaches
   the browser. The ephemeral control thread is read-only, shell/unified-exec
-  tools are disabled, and only the host validates and executes the fixed Pi
-  operation.
+  tools are disabled. The host validates bounded instruction strings and uses
+  argv-only CLI execution to the fixed Pi target. Requests use `steer`
+  semantics; completed sends are followed by assistant-only timeline reads since
+  submission. Long tasks may outlive the 90-second wait: ask for status rather
+  than resend. Only one tool operation can be pending per call.
 - One call can be active, for at most ten minutes. Hangup, page exit, or
   signaling disconnect stops browser tracks and the owned app-server. A lost
   network path is reaped by the bridge heartbeat within about twenty seconds. An
-  already submitted Pi marker may finish; no working agents are stopped.
+  already submitted Pi task continues independently; no working agents are
+  stopped.
 
 #### Focused trial checks
 
@@ -147,7 +157,7 @@ preview running, prepare a synthetic microphone fixture (requires local ffmpeg):
 
 ```bash
 ffmpeg -hide_banner -loglevel error -f lavfi \
-  -i 'flite=text=Please ask the coding agent to run the harmless Pi marker test and tell me its answer.:voice=slt' \
+  -i 'flite=text=Please ask Pi to tell me its current working directory and read scripts slash call dash preview dot m j s. In two short sentences explain what that file does. Do not change any files.:voice=slt' \
   -af 'adelay=6000,apad=pad_dur=20' -ar 48000 -ac 1 -y \
   /tmp/paseo-call-browser-fixture.wav
 npx vitest run scripts/call-preview.test.ts --bail=1
@@ -159,11 +169,12 @@ CALL_TEST_BROWSER_CHANNEL=chrome npx playwright test \
 `CALL_AUDIO_FIXTURE` overrides the WAV path; omit `CALL_TEST_BROWSER_CHANNEL` to
 use Playwright's installed Chromium. The browser spec verifies denied microphone
 permission, invalid token recovery, cancellation during connection, and actual
-speech -> Pi marker -> non-silent remote audio. It requires the existing Codex
-login, GPT-Live entitlement, and the fixed test Pi session. Phone hardware,
-mobile autoplay recovery, interruptions, and long/background calls still need
-manual verification. Native calling is not implemented. Leave
-`EXPO_PUBLIC_CALL_LIVE` unset to retain the separate simulation UI.
+natural coding question -> fresh Pi answer -> non-silent, playing remote audio.
+It requires the existing Codex login, GPT-Live entitlement, and the fixed test
+Pi session. Phone hardware, mobile autoplay recovery, interruptions, and
+long/background calls still need manual verification. Native calling is not
+implemented. Leave `EXPO_PUBLIC_CALL_LIVE` unset to retain the separate
+simulation UI.
 
 ### Daemon endpoints
 

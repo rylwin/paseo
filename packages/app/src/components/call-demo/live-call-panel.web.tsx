@@ -77,11 +77,12 @@ export function LiveCallPanel() {
         <>
           <Text style={styles.body}>
             {
-              'Real microphone and GPT-Live audio. Ask: "Run the harmless Pi marker test and tell me its answer."'
+              'Talk to Pi about this Paseo worktree. Try: "Ask Pi for its working directory and explain scripts/call-preview.mjs without changing files."'
             }
           </Text>
           <Text style={styles.metadata}>
-            Only this isolated Pi session can be called. Arbitrary coding tasks are not enabled.
+            Your requests go to the Pi session above, with ordinary coding permissions. It can edit
+            files when you ask. Other sessions are not accessible.
           </Text>
           {!active ? (
             <EditingTextInput

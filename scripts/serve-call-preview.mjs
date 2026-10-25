@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { WebSocketServer } from "ws";
 import { admitUpgrade, authenticateStart } from "./call-preview.mjs";
-import { TrialCall, TRIAL_AGENT } from "./call-preview-runtime.mjs";
+import { TrialCall, TRIAL_AGENT, TRIAL_TITLE, TRIAL_CWD } from "./call-preview-runtime.mjs";
 
 const port = Number(process.env.CALL_PREVIEW_PORT ?? 8788);
 const metroPort = Number(process.env.CALL_METRO_PORT ?? 8087);
@@ -122,7 +122,8 @@ sockets.on("connection", (ws) => {
       type: "identity",
       host: "titanium",
       agentId: TRIAL_AGENT,
-      title: "PHONE-CALL-TRIAL-MARKER-ONLY",
+      title: TRIAL_TITLE,
+      cwd: TRIAL_CWD,
     });
     void call.start(message.sdp).catch((error) => {
       call.fail(error.message.startsWith("Call ended") ? "Call ended" : error.message);

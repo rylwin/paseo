@@ -67,7 +67,9 @@ test("ending during connection cannot become connected later", async ({ browser 
   await context.close();
 });
 
-test("browser speech reaches fixed Pi and returns remote audio", async ({ browser }, testInfo) => {
+test("natural coding question reaches bound Pi and returns its fresh answer and audio", async ({
+  browser,
+}, testInfo) => {
   const context = await browser.newContext({
     permissions: ["microphone"],
     viewport: { width: 390, height: 844 },
@@ -96,9 +98,9 @@ test("browser speech reaches fixed Pi and returns remote audio", async ({ browse
     await audioContext.close();
     return peak;
   });
-  await expect(page.getByText(/^Pi agent answered: PI_CONTROL_OK_/)).toBeVisible({
-    timeout: 90000,
-  });
+  const reply = page.getByText(/^Pi replied:/);
+  await expect(reply).toContainText("/tmp/paseo-call-prototype-20260719", { timeout: 90000 });
+  await expect(reply).toContainText(/auth|token|origin/i);
   const audioPeak = await audioEvidence;
   expect(audioPeak).toBeGreaterThan(3);
   await expect
@@ -111,7 +113,7 @@ test("browser speech reaches fixed Pi and returns remote audio", async ({ browse
   await testInfo.attach("live-call-evidence", {
     body: JSON.stringify({
       audioPeak,
-      piReply: await page.getByText(/^Pi agent answered: PI_CONTROL_OK_/).textContent(),
+      piReply: await reply.textContent(),
       browserPlayback: "playing",
     }),
     contentType: "application/json",
