@@ -10,19 +10,13 @@ import {
 } from "react";
 import { Text, View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { Phone, PhoneOutgoing, PhoneOff } from "lucide-react-native";
+import { Phone, PhoneOutgoing, Mic, MicOff, PhoneOff } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { ToolbarButton } from "@/components/ui/pane-content-toolbar";
 import { Alert } from "@/components/ui/alert";
 import { isWeb } from "@/constants/platform";
 import { useSessionStore } from "@/stores/session-store";
-import { useActiveWorkspaceSelection } from "@/stores/navigation-active-workspace-store";
-import {
-  collectAllTabs,
-  findPaneById,
-  useWorkspaceLayoutStore,
-} from "@/stores/workspace-layout-store";
 import { navigateToAgent } from "@/utils/navigate-to-agent";
 import {
   getHostRuntimeStore,
@@ -35,6 +29,14 @@ import { ConversationCallController, type CallSignaling, type CallTarget } from 
 import { createCallMedia } from "./media";
 
 const CallContext = createContext<ConversationCallController | null>(null);
+const ThemedMic = withUnistyles(Mic, (theme) => ({
+  color: theme.colors.foreground,
+  size: theme.iconSize.md,
+}));
+const ThemedMicOff = withUnistyles(MicOff, (theme) => ({
+  color: theme.colors.foreground,
+  size: theme.iconSize.md,
+}));
 const ThemedPhoneOff = withUnistyles(PhoneOff, (theme) => ({
   color: theme.colors.statusDanger,
   size: theme.iconSize.md,
@@ -102,6 +104,28 @@ export function ConversationCallProvider({ children }: { children: ReactNode }) 
         children
       )}
     </CallContext.Provider>
+  );
+}
+
+function CallMuteAction() {
+  const controller = useCall();
+  const snapshot = useSyncExternalStore(
+    controller.subscribe,
+    controller.getSnapshot,
+    controller.getSnapshot,
+  );
+  const mute = useCallback(() => controller.toggleMute(), [controller]);
+  if (snapshot.phase !== "connecting" && snapshot.phase !== "connected") return null;
+  return (
+    <ToolbarButton
+      label={snapshot.muted ? "Unmute microphone" : "Mute microphone"}
+      selected={snapshot.muted}
+      aria-pressed={snapshot.muted}
+      onPress={mute}
+      style={styles.touchTarget}
+    >
+      {snapshot.muted ? <ThemedMicOff /> : <ThemedMic />}
+    </ToolbarButton>
   );
 }
 
@@ -178,15 +202,6 @@ function ConversationCallHost() {
     controller.getSnapshot,
     controller.getSnapshot,
   );
-  const selection = useActiveWorkspaceSelection();
-  const focusedAgentId = useWorkspaceLayoutStore((state) => {
-    if (!selection) return null;
-    const layout = state.layoutByWorkspace[`${selection.serverId}:${selection.workspaceId}`];
-    if (!layout) return null;
-    const pane = findPaneById(layout.root, layout.focusedPaneId);
-    const tab = collectAllTabs(layout.root).find((item) => item.tabId === pane?.focusedTabId);
-    return tab?.target.kind === "agent" ? tab.target.agentId : null;
-  });
   const end = useCallback(() => controller.end(), [controller]);
   const dismiss = useCallback(() => controller.dismiss(), [controller]);
   const play = useCallback(() => {
@@ -213,14 +228,11 @@ function ConversationCallHost() {
     [targetLabel],
   );
   if (!isWeb || snapshot.phase === "idle" || snapshot.phase === "ended") return null;
-  const onTarget =
-    selection?.serverId === snapshot.target.serverId && focusedAgentId === snapshot.target.agentId;
   const active = snapshot.phase === "connecting" || snapshot.phase === "connected";
-  if (onTarget && !snapshot.playbackBlocked && !snapshot.error) return null;
   return (
     <View style={styles.host} testID="conversation-call-host">
       <View style={styles.panel}>
-        {active && !onTarget ? (
+        {active ? (
           <View style={styles.row}>
             <Button
               accessibilityLabel={`Return to call with ${snapshot.target.label}`}
@@ -230,6 +242,7 @@ function ConversationCallHost() {
               leftIcon={snapshot.phase === "connecting" ? connectingPhoneIcon : livePhoneIcon}
               trailing={identity}
             />
+            <CallMuteAction />
             <ToolbarButton label="End call" onPress={end} style={styles.touchTarget}>
               <ThemedPhoneOff />
             </ToolbarButton>

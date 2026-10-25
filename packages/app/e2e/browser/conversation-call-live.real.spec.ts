@@ -61,13 +61,21 @@ for (const width of [1280, 390]) {
         workspaceId: workspace.workspaceId,
         title: "Connecting call target",
       });
+      const other = await workspace.client.createAgent({
+        provider: "pi",
+        cwd: workspace.workspaceDirectory,
+        workspaceId: workspace.workspaceId,
+        title: "Other call conversation",
+      });
       const serverId = await getServerId();
+      await page.goto(`/h/${serverId}/agent/${other.id}`);
+      await expect(page.getByTestId("conversation-call-start")).toBeVisible();
       await page.setViewportSize({ width, height: 900 });
       await page.addInitScript(() => {
         navigator.mediaDevices.getUserMedia = () => new Promise(() => {});
       });
       await page.goto(`/h/${serverId}/agent/${pi.id}`);
-      const phone = page.getByTestId("conversation-call-start");
+      const phone = page.locator('[data-testid="conversation-call-start"]:visible');
       await expect(phone).toBeVisible();
       const idleBox = await phone.boundingBox();
       expect(idleBox).not.toBeNull();
@@ -85,15 +93,34 @@ for (const width of [1280, 390]) {
       await expect(phone).toHaveAttribute("aria-pressed", "true");
       await expect(phone).toHaveAccessibleName("Cancel call");
       expect(await phone.boundingBox()).toEqual(idleBox);
-      await expect(page.getByRole("button", { name: /mute microphone/i })).toHaveCount(0);
+      const host = page.getByTestId("conversation-call-host");
+      await expect(host).toBeVisible();
+      await expect(host.getByRole("button")).toHaveCount(3);
+      await host.getByRole("button", { name: "Mute microphone", exact: true }).click();
+      await expect(
+        host.getByRole("button", { name: "Unmute microphone", exact: true }),
+      ).toHaveAttribute("aria-pressed", "true");
+      await host.getByRole("button", { name: "Unmute microphone", exact: true }).click();
+      await expect(phone.locator("..").getByRole("button")).toHaveCount(1);
       expect(await phone.locator("..").boundingBox()).toEqual(idleBox);
       await page.screenshot({ path: testInfo.outputPath("call-connecting.png") });
       await page.setViewportSize({ width: 1280, height: 900 });
+      await page.getByRole("button", { name: "Other call conversation", exact: true }).click();
+      await expect(phone).toBeDisabled();
+      await expect(host).toContainText("Connecting call target");
+      await expect(
+        host.getByRole("button", { name: "Mute microphone", exact: true }),
+      ).toBeVisible();
+      await host
+        .getByRole("button", { name: "Return to call with Connecting call target" })
+        .click();
+      await expect(phone).toHaveAccessibleName("Cancel call");
       await openSettings(page);
       await page.setViewportSize({ width, height: 900 });
-      const host = page.getByTestId("conversation-call-host");
-      await expect(host.getByRole("button")).toHaveCount(2);
-      await expect(page.getByRole("button", { name: /mute microphone/i })).toHaveCount(0);
+      await expect(host.getByRole("button")).toHaveCount(3);
+      await expect(
+        host.getByRole("button", { name: "Mute microphone", exact: true }),
+      ).toBeVisible();
       await host
         .getByRole("button", { name: "Return to call with Connecting call target" })
         .click();
@@ -159,6 +186,14 @@ test("normal coding question reaches the captured Pi and returns an actual answe
         } catch {}
       });
     });
+    await page.addInitScript(() => {
+      const getUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getUserMedia = async (constraints) => {
+        const stream = await getUserMedia(constraints);
+        (window as Window & { callMic?: MediaStream }).callMic = stream;
+        return stream;
+      };
+    });
     await page.goto(`/h/${serverId}/agent/${pi.id}`);
     const phone = page.getByTestId("conversation-call-start");
     await expect(phone).toBeVisible({ timeout: 60000 });
@@ -177,8 +212,25 @@ test("normal coding question reaches the captured Pi and returns an actual answe
     const host = page.getByTestId("conversation-call-host");
     await expect(phone).toHaveAccessibleName("End call", { timeout: 90000 });
     await expect(phone).toHaveAttribute("aria-pressed", "true");
-    await expect(host).toHaveCount(0);
-    await expect(page.getByRole("button", { name: /mute microphone/i })).toHaveCount(0);
+    await expect(host).toBeVisible();
+    await host.getByRole("button", { name: "Mute microphone", exact: true }).click();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (window as Window & { callMic?: MediaStream }).callMic?.getAudioTracks()[0]?.enabled,
+        ),
+      )
+      .toBe(false);
+    await host.getByRole("button", { name: "Unmute microphone", exact: true }).click();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (window as Window & { callMic?: MediaStream }).callMic?.getAudioTracks()[0]?.enabled,
+        ),
+      )
+      .toBe(true);
     const audioPeak = page
       .locator("audio[data-testid='conversation-call-audio']")
       .evaluate(async (audio: HTMLAudioElement) => {
@@ -229,7 +281,10 @@ test("normal coding question reaches the captured Pi and returns an actual answe
         await page.setViewportSize(viewport);
         await expect(phone).toBeVisible();
         await expect.poll(() => phone.boundingBox()).toEqual(idleBoxes.get(viewport.width));
-        await expect(page.getByRole("button", { name: /mute microphone/i })).toHaveCount(0);
+        await expect(
+          host.getByRole("button", { name: "Mute microphone", exact: true }),
+        ).toBeVisible();
+        await expect(phone.locator("..").getByRole("button")).toHaveCount(1);
         expect(await phone.locator("..").boundingBox()).toEqual(idleBoxes.get(viewport.width));
         await expect
           .poll(async () => (await phone.boundingBox())?.width ?? 0)
@@ -247,20 +302,22 @@ test("normal coding question reaches the captured Pi and returns an actual answe
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(host).toContainText("Harmless live call target");
     await expect(host).not.toContainText(pi.id);
-    await expect(host.getByRole("button")).toHaveCount(2);
-    await expect(page.getByRole("button", { name: /mute microphone/i })).toHaveCount(0);
+    await expect(host.getByRole("button")).toHaveCount(3);
+    await expect(host.getByRole("button", { name: "Mute microphone", exact: true })).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("call-away-mobile-dark.png") });
     await page
       .getByRole("button", { name: "Return to call with Harmless live call target", exact: true })
       .click();
     await expect(phone).toHaveAccessibleName("End call");
-    await expect(host).toHaveCount(0);
+    await expect(host).toBeVisible();
     await expect(page).toHaveURL(new RegExp(`/h/${serverId}/workspace/`));
     await phone.click();
     await expect(phone).toHaveAttribute("aria-pressed", "false");
     await expect.poll(() => phone.boundingBox()).toEqual(idleBoxes.get(390));
     await expect(host).toHaveCount(0);
     await expect(page.locator("audio[data-testid='conversation-call-audio']")).toHaveCount(0);
+    const agents = await workspace.client.fetchAgents();
+    expect(agents.entries.find((entry) => entry.agent.id === pi.id)?.agent.id).toBe(pi.id);
     const evidence = JSON.stringify({ rpcTypes, delegationEvents, audio }, null, 2);
     const evidenceDir = path.join(tmpdir(), "paseo-conversation-evidence");
     await mkdir(evidenceDir, { recursive: true });
