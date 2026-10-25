@@ -25,9 +25,10 @@ test("normal Pi conversation offers calling; an unsupported host shows recovery 
     await expect(host).toContainText("Update the host");
     await expect(host).toContainText("Harmless call target");
     await expect(page.locator("audio[data-testid='conversation-call-audio']")).toHaveCount(0);
-    await page.getByRole("button", { name: "Minimize call", exact: true }).click();
     await openSettings(page);
     await expect(host).toContainText("Harmless call target");
+    await expect(host).not.toContainText(pi.id);
+    await expect(host).not.toContainText("Voice interruptions");
     await page.getByRole("button", { name: "Dismiss call", exact: true }).click();
     await expect(host).toHaveCount(0);
   } finally {

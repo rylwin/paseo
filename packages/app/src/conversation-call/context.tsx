@@ -3,20 +3,27 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useState,
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { Text, View, ScrollView } from "react-native";
-import { StyleSheet } from "react-native-unistyles";
-import { Phone, Mic, MicOff, Minus, Maximize2, PhoneOff } from "lucide-react-native";
-import { withUnistyles } from "react-native-unistyles";
+import { Text, View } from "react-native";
+import { StyleSheet, withUnistyles } from "react-native-unistyles";
+import { Phone, PhoneOutgoing, Mic, MicOff, PhoneOff } from "lucide-react-native";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { ToolbarButton } from "@/components/ui/pane-content-toolbar";
-import { StatusBadge } from "@/components/ui/status-badge";
 import { Alert } from "@/components/ui/alert";
 import { isWeb } from "@/constants/platform";
 import { useSessionStore } from "@/stores/session-store";
+import { useActiveWorkspaceSelection } from "@/stores/navigation-active-workspace-store";
+import {
+  collectAllTabs,
+  findPaneById,
+  useWorkspaceLayoutStore,
+} from "@/stores/workspace-layout-store";
+import { navigateToAgent } from "@/utils/navigate-to-agent";
 import {
   getHostRuntimeStore,
   useHostRuntimeClient,
@@ -29,32 +36,33 @@ import { createCallMedia } from "./media";
 
 const CallContext = createContext<ConversationCallController | null>(null);
 const ThemedMic = withUnistyles(Mic, (theme) => ({
-  color: theme.colors.foregroundMuted,
-  size: theme.iconSize.sm,
+  color: theme.colors.foreground,
+  size: theme.iconSize.md,
 }));
 const ThemedMicOff = withUnistyles(MicOff, (theme) => ({
-  color: theme.colors.foregroundMuted,
-  size: theme.iconSize.sm,
+  color: theme.colors.foreground,
+  size: theme.iconSize.md,
 }));
 const ThemedPhoneOff = withUnistyles(PhoneOff, (theme) => ({
-  color: theme.colors.foregroundMuted,
-  size: theme.iconSize.sm,
+  color: theme.colors.statusDanger,
+  size: theme.iconSize.md,
 }));
-const ThemedMinimize = withUnistyles(Minus, (theme) => ({
-  color: theme.colors.foregroundMuted,
-  size: theme.iconSize.sm,
-}));
-const ThemedExpand = withUnistyles(Maximize2, (theme) => ({
-  color: theme.colors.foregroundMuted,
-  size: theme.iconSize.sm,
-}));
-const microphoneIcon = <ThemedMic />;
-const mutedIcon = <ThemedMicOff />;
-const hangupIcon = <ThemedPhoneOff />;
 const ThemedPhone = withUnistyles(Phone, (theme) => ({
   color: theme.colors.foregroundMuted,
   size: theme.iconSize.md,
 }));
+const ThemedLivePhone = withUnistyles(Phone, (theme) => ({
+  color: theme.colors.statusSuccess,
+  size: theme.iconSize.md,
+}));
+const ThemedConnectingPhone = withUnistyles(PhoneOutgoing, (theme) => ({
+  color: theme.colors.foreground,
+  size: theme.iconSize.md,
+}));
+
+const phoneIcon = <ThemedPhone />;
+const livePhoneIcon = <ThemedLivePhone />;
+const connectingPhoneIcon = <ThemedConnectingPhone />;
 
 function signaling(client: DaemonClient): CallSignaling {
   return {
@@ -105,6 +113,28 @@ export function ConversationCallProvider({ children }: { children: ReactNode }) 
   );
 }
 
+function CallMuteAction() {
+  const controller = useCall();
+  const snapshot = useSyncExternalStore(
+    controller.subscribe,
+    controller.getSnapshot,
+    controller.getSnapshot,
+  );
+  const mute = useCallback(() => controller.toggleMute(), [controller]);
+  if (snapshot.phase !== "connecting" && snapshot.phase !== "connected") return null;
+  return (
+    <ToolbarButton
+      label={snapshot.muted ? "Unmute microphone" : "Mute microphone"}
+      selected={snapshot.muted}
+      aria-pressed={snapshot.muted}
+      onPress={mute}
+      style={styles.touchTarget}
+    >
+      {snapshot.muted ? <ThemedMicOff /> : <ThemedMic />}
+    </ToolbarButton>
+  );
+}
+
 /** Only the normal active-agent composer supplies this slot; drafts and native keep their controls. */
 export function ConversationCallAction({
   serverId,
@@ -125,26 +155,50 @@ export function ConversationCallAction({
     (state) => state.sessions[serverId]?.agents.get(agentId)?.provider,
   );
   const title = useSessionStore((state) => state.sessions[serverId]?.agents.get(agentId)?.title);
+  const { t } = useTranslation();
   const voice = useVoiceOptional();
   const busy = snapshot.phase === "connecting" || snapshot.phase === "connected";
+  const isTarget =
+    busy && snapshot.target.serverId === serverId && snapshot.target.agentId === agentId;
   const disabled =
-    !connected || busy || voice?.isVoiceMode === true || voice?.isVoiceSwitching === true;
-  const start = useCallback(() => {
+    !connected ||
+    (busy && !isTarget) ||
+    voice?.isVoiceMode === true ||
+    voice?.isVoiceSwitching === true;
+  const toggle = useCallback(() => {
+    if (isTarget) {
+      controller.end();
+      return;
+    }
     if (!client) return;
-    const host = client.getLastServerInfoMessage()?.hostname ?? serverId;
-    const target: CallTarget = { serverId, agentId, label: `${host} / ${title ?? agentId}` };
+    const target: CallTarget = { serverId, agentId, label: title || t("agentList.fallbackTitle") };
     void controller.start(target, signaling(client));
-  }, [agentId, client, controller, serverId, title]);
+  }, [agentId, client, controller, isTarget, serverId, title, t]);
   if (!isWeb || provider !== "pi") return null;
+  let label = "Call this Pi agent with GPT-Live";
+  let icon = phoneIcon;
+  if (isTarget) {
+    label = snapshot.phase === "connecting" ? "Cancel call" : "End call";
+    icon = snapshot.phase === "connecting" ? connectingPhoneIcon : livePhoneIcon;
+  }
   return (
-    <ToolbarButton
-      label="Call this Pi agent with GPT-Live"
-      testID="conversation-call-start"
-      onPress={start}
-      disabled={disabled}
-    >
-      <ThemedPhone />
-    </ToolbarButton>
+    <View style={styles.controls}>
+      <ToolbarButton
+        label={label}
+        tooltip={
+          isTarget && snapshot.phase === "connecting" ? "Connecting... Cancel call" : undefined
+        }
+        selected={isTarget}
+        aria-pressed={isTarget}
+        testID="conversation-call-start"
+        onPress={toggle}
+        disabled={disabled}
+        style={styles.touchTarget}
+      >
+        {icon}
+      </ToolbarButton>
+      {isTarget ? <CallMuteAction /> : null}
+    </View>
   );
 }
 
@@ -155,8 +209,15 @@ function ConversationCallHost() {
     controller.getSnapshot,
     controller.getSnapshot,
   );
-  const minimize = useCallback(() => controller.toggleMinimized(), [controller]);
-  const mute = useCallback(() => controller.toggleMute(), [controller]);
+  const selection = useActiveWorkspaceSelection();
+  const focusedAgentId = useWorkspaceLayoutStore((state) => {
+    if (!selection) return null;
+    const layout = state.layoutByWorkspace[`${selection.serverId}:${selection.workspaceId}`];
+    if (!layout) return null;
+    const pane = findPaneById(layout.root, layout.focusedPaneId);
+    const tab = collectAllTabs(layout.root).find((item) => item.tabId === pane?.focusedTabId);
+    return tab?.target.kind === "agent" ? tab.target.agentId : null;
+  });
   const end = useCallback(() => controller.end(), [controller]);
   const dismiss = useCallback(() => controller.dismiss(), [controller]);
   const play = useCallback(() => {
@@ -168,90 +229,61 @@ function ConversationCallHost() {
     const client = getHostRuntimeStore().getClient(state.target.serverId);
     if (client) void controller.start(state.target, signaling(client));
   }, [controller]);
-  if (!isWeb || snapshot.phase === "idle") return null;
+  const returnToCall = useCallback(() => {
+    const state = controller.getSnapshot();
+    if (state.phase !== "idle")
+      navigateToAgent({ serverId: state.target.serverId, agentId: state.target.agentId });
+  }, [controller]);
+  const targetLabel = snapshot.phase === "idle" ? "" : snapshot.target.label;
+  const identity = useMemo(
+    () => (
+      <Text numberOfLines={1} style={styles.identityText}>
+        {targetLabel}
+      </Text>
+    ),
+    [targetLabel],
+  );
+  if (!isWeb || snapshot.phase === "idle" || snapshot.phase === "ended") return null;
+  const onTarget =
+    selection?.serverId === snapshot.target.serverId && focusedAgentId === snapshot.target.agentId;
   const active = snapshot.phase === "connecting" || snapshot.phase === "connected";
-  const phaseLabels = {
-    connecting: "Connecting...",
-    connected: "Connected",
-    ended: "Call ended",
-    failed: "Call failed",
-  };
+  if (onTarget && !snapshot.playbackBlocked && !snapshot.error) return null;
   return (
     <View style={styles.host} testID="conversation-call-host">
       <View style={styles.panel}>
-        <View style={styles.row}>
-          <View style={styles.identity}>
-            <Text style={styles.heading}>GPT-Live call</Text>
-            <Text style={styles.target} numberOfLines={2} selectable>
-              {snapshot.target.label}
-            </Text>
+        {active && !onTarget ? (
+          <View style={styles.row}>
+            <Button
+              accessibilityLabel={`Return to call with ${snapshot.target.label}`}
+              onPress={returnToCall}
+              variant="ghost"
+              style={styles.identity}
+              leftIcon={snapshot.phase === "connecting" ? connectingPhoneIcon : livePhoneIcon}
+              trailing={identity}
+            />
+            <CallMuteAction />
+            <ToolbarButton label="End call" onPress={end} style={styles.touchTarget}>
+              <ThemedPhoneOff />
+            </ToolbarButton>
           </View>
-          <StatusBadge
-            label={phaseLabels[snapshot.phase]}
-            variant={snapshot.phase === "connected" ? "success" : "muted"}
-          />
-          <ToolbarButton
-            label={snapshot.minimized ? "Expand call" : "Minimize call"}
-            onPress={minimize}
-          >
-            {snapshot.minimized ? <ThemedExpand /> : <ThemedMinimize />}
-          </ToolbarButton>
-        </View>
-        {!snapshot.minimized && (
-          <ScrollView style={styles.details}>
-            <Text style={styles.meta} selectable>
-              {snapshot.target.agentId}
-            </Text>
-            <Text style={styles.copy}>
-              Voice interruptions do not stop Pi. Only a new delegated coding instruction can steer
-              it. Pi keeps working when you end the call.
-            </Text>
-            {snapshot.delegation ? (
-              <Text style={styles.copy} selectable testID="conversation-call-delegation">
-                {snapshot.delegation}
-              </Text>
-            ) : null}
-            {snapshot.transcript ? (
-              <Text style={styles.copy} selectable testID="conversation-call-transcript">
-                {snapshot.transcript}
-              </Text>
-            ) : null}
-          </ScrollView>
-        )}
-        {snapshot.error ? (
-          <Alert variant="error" title="Call failed" description={snapshot.error} />
         ) : null}
-        <View style={styles.row}>
-          {active ? (
-            <>
-              <Button
-                size="sm"
-                variant="outline"
-                onPress={mute}
-                leftIcon={snapshot.muted ? mutedIcon : microphoneIcon}
-              >
-                {snapshot.muted ? "Unmute microphone" : "Mute microphone"}
-              </Button>
-              <Button size="sm" variant="outline" onPress={end} leftIcon={hangupIcon}>
-                End call
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button size="sm" variant="outline" onPress={retry}>
+        {snapshot.error ? (
+          <Alert
+            variant="error"
+            title={`Call failed with ${snapshot.target.label}`}
+            description={snapshot.error}
+          >
+            <View style={styles.controls}>
+              <Button onPress={retry} variant="outline">
                 Call again
               </Button>
-              <Button size="sm" variant="outline" onPress={dismiss}>
+              <Button onPress={dismiss} variant="ghost">
                 Dismiss call
               </Button>
-            </>
-          )}
-          {snapshot.playbackBlocked ? (
-            <Button size="sm" variant="outline" onPress={play}>
-              Play call audio
-            </Button>
-          ) : null}
-        </View>
+            </View>
+          </Alert>
+        ) : null}
+        {snapshot.playbackBlocked ? <Button onPress={play}>Play call audio</Button> : null}
       </View>
     </View>
   );
@@ -260,25 +292,16 @@ function ConversationCallHost() {
 const styles = StyleSheet.create((theme) => ({
   root: { flex: 1 },
   host: {
-    backgroundColor: theme.colors.surface1,
+    backgroundColor: theme.colors.surface3,
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.border,
-    padding: theme.spacing[3],
+    paddingHorizontal: theme.spacing[3],
+    paddingVertical: theme.spacing[1],
   },
   panel: { width: "100%", maxWidth: 720, alignSelf: "center", gap: theme.spacing[2] },
-  row: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: theme.spacing[2] },
-  identity: { flex: 1, minWidth: 120 },
-  heading: {
-    fontSize: theme.fontSize.base,
-    fontWeight: theme.fontWeight.medium,
-    color: theme.colors.foreground,
-  },
-  target: { fontSize: theme.fontSize.sm, color: theme.colors.foreground },
-  meta: { fontSize: theme.fontSize.sm, color: theme.colors.foregroundMuted },
-  copy: {
-    fontSize: theme.fontSize.sm,
-    color: theme.colors.foregroundMuted,
-    marginTop: theme.spacing[2],
-  },
-  details: { maxHeight: 160 },
+  row: { flexDirection: "row", alignItems: "center", gap: theme.spacing[2] },
+  controls: { flexDirection: "row", alignItems: "center", gap: theme.spacing[1] },
+  identity: { flex: 1, minWidth: 0, justifyContent: "flex-start" },
+  identityText: { flexShrink: 1, fontSize: theme.fontSize.base, color: theme.colors.foreground },
+  touchTarget: { minWidth: theme.spacing[12], minHeight: theme.spacing[12] },
 }));

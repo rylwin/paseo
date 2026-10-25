@@ -49,9 +49,9 @@ test("denied microphone access stays visible with retry on a compact conversatio
   }
 });
 
-test("hangup during microphone connection preserves an ended call across navigation", async ({
+test("second composer press cancels microphone connection across navigation", async ({
   page,
-}) => {
+}, testInfo) => {
   const workspace = await seedWorkspace({ repoPrefix: "paseo-call-cancel-", git: false });
   try {
     const pi = await workspace.client.createAgent({
@@ -61,14 +61,37 @@ test("hangup during microphone connection preserves an ended call across navigat
       title: "Connecting call target",
     });
     const serverId = await getServerId();
-    await page.context().grantPermissions(["microphone"]);
+    await page.addInitScript(() => {
+      navigator.mediaDevices.getUserMedia = () => new Promise(() => {});
+    });
     await page.goto(`/h/${serverId}/agent/${pi.id}`);
-    await page.getByTestId("conversation-call-start").click();
-    await page.getByRole("button", { name: "End call", exact: true }).click();
-    const host = page.getByTestId("conversation-call-host");
-    await expect(host).toContainText("Call ended");
+    const phone = page.getByTestId("conversation-call-start");
+    await expect(phone).toBeVisible();
+    await page.mouse.move(0, 0);
+    const idleBackground = await phone.evaluate(
+      (button) => getComputedStyle(button).backgroundColor,
+    );
+    await phone.click();
+    await page.mouse.move(0, 0);
+    await expect
+      .poll(() => phone.evaluate((button) => getComputedStyle(button).backgroundColor))
+      .not.toBe(idleBackground);
+    await expect(phone).toHaveAttribute("aria-pressed", "true");
+    await expect(phone).toHaveAccessibleName("Cancel call");
+    await page.screenshot({ path: testInfo.outputPath("call-connecting.png") });
+    await phone.click();
+    await page.mouse.move(0, 0);
+    await expect(phone).toHaveAttribute("aria-pressed", "false");
+    await phone.blur();
+    await phone.hover();
+    await page.mouse.move(500, 400);
+    await expect
+      .poll(() => phone.evaluate((button) => getComputedStyle(button).backgroundColor))
+      .toBe(idleBackground);
+    await expect(phone).toHaveAccessibleName("Call this Pi agent with GPT-Live");
+    await expect(page.getByTestId("conversation-call-host")).toHaveCount(0);
     await openSettings(page);
-    await expect(host).toContainText("Call ended");
+    await expect(page.getByTestId("conversation-call-host")).toHaveCount(0);
     await expect(page.locator("audio[data-testid='conversation-call-audio']")).toHaveCount(0);
     const agents = await workspace.client.fetchAgents();
     expect(agents.entries.find((entry) => entry.agent.id === pi.id)?.agent.status).toBe("idle");
@@ -80,6 +103,7 @@ test("hangup during microphone connection preserves an ended call across navigat
 test("normal coding question reaches the captured Pi and returns an actual answer and nonzero audio", async ({
   page,
 }, testInfo) => {
+  testInfo.setTimeout(180000);
   const workspace = await seedWorkspace({ repoPrefix: "paseo-live-call-", git: false });
   try {
     const pi = await workspace.client.createAgent({
@@ -115,7 +139,15 @@ test("normal coding question reaches the captured Pi and returns an actual answe
     await expect(page.getByTestId("conversation-call-start")).toBeVisible({ timeout: 60000 });
     await page.getByTestId("conversation-call-start").click();
     const host = page.getByTestId("conversation-call-host");
-    await expect(host).toContainText("Connected", { timeout: 90000 });
+    const phone = page.getByTestId("conversation-call-start");
+    await expect(phone).toHaveAccessibleName("End call", { timeout: 90000 });
+    await expect(phone).toHaveAttribute("aria-pressed", "true");
+    await expect(host).toHaveCount(0);
+    await page.getByRole("button", { name: "Mute microphone", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "Unmute microphone", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await page.getByRole("button", { name: "Unmute microphone", exact: true }).click();
     const audioPeak = page
       .locator("audio[data-testid='conversation-call-audio']")
       .evaluate(async (audio: HTMLAudioElement) => {
@@ -134,12 +166,24 @@ test("normal coding question reaches the captured Pi and returns an actual answe
         await context.close();
         return { peak, at: Date.now() };
       });
-    await expect(page.getByTestId("conversation-call-delegation")).toContainText("Pi replied:", {
-      timeout: 100000,
-    });
-    await expect(page.getByTestId("conversation-call-delegation")).toContainText(
-      /discriminated|TypeScript|union/i,
-    );
+    await expect
+      .poll(
+        () =>
+          delegationEvents
+            .filter((entry) => entry.event.kind === "delegation")
+            .map((entry) => entry.event.text)
+            .join("\n"),
+        { timeout: 100000 },
+      )
+      .toContain("Pi replied:");
+    const reply = delegationEvents
+      .filter((entry) => entry.event.kind === "delegation")
+      .map((entry) => entry.event.text)
+      .join("\n");
+    expect(reply).toMatch(/discriminated|TypeScript|union/i);
+    expect(reply).toContain(workspace.workspaceDirectory);
+    await expect(page.getByTestId("conversation-call-delegation")).toHaveCount(0);
+    await expect(page.getByTestId("conversation-call-transcript")).toHaveCount(0);
     const audio = await audioPeak;
     expect(audio.peak).toBeGreaterThan(3);
     const delegationTimes = delegationEvents
@@ -148,12 +192,40 @@ test("normal coding question reaches the captured Pi and returns an actual answe
     expect(delegationTimes).toHaveLength(1);
     expect(audio.at).toBeLessThan(delegationTimes[0]);
     expect(rpcTypes).toContain("conversation.call.start.request");
-    await page.screenshot({ path: testInfo.outputPath("conversation-call-connected.png") });
-    await page.getByRole("button", { name: "Minimize call", exact: true }).click();
+    for (const colorScheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
+      for (const viewport of [
+        { width: 1280, height: 900 },
+        { width: 390, height: 844 },
+      ]) {
+        await page.setViewportSize(viewport);
+        await expect(phone).toBeVisible();
+        await expect
+          .poll(async () => (await phone.boundingBox())?.width ?? 0)
+          .toBeGreaterThanOrEqual(44);
+        await expect
+          .poll(async () => (await phone.boundingBox())?.height ?? 0)
+          .toBeGreaterThanOrEqual(44);
+        await page.screenshot({
+          path: testInfo.outputPath(`call-${colorScheme}-${viewport.width}.png`),
+        });
+      }
+    }
+    await page.setViewportSize({ width: 1280, height: 900 });
     await openSettings(page);
+    await page.setViewportSize({ width: 390, height: 844 });
     await expect(host).toContainText("Harmless live call target");
-    await page.getByRole("button", { name: "End call", exact: true }).click();
-    await expect(host).toContainText("Call ended");
+    await expect(host).not.toContainText(pi.id);
+    await page.screenshot({ path: testInfo.outputPath("call-away-mobile-dark.png") });
+    await page
+      .getByRole("button", { name: "Return to call with Harmless live call target", exact: true })
+      .click();
+    await expect(phone).toHaveAccessibleName("End call");
+    await expect(host).toHaveCount(0);
+    await expect(page).toHaveURL(new RegExp(`/h/${serverId}/workspace/`));
+    await phone.click();
+    await expect(phone).toHaveAttribute("aria-pressed", "false");
+    await expect(host).toHaveCount(0);
     await expect(page.locator("audio[data-testid='conversation-call-audio']")).toHaveCount(0);
     const evidence = JSON.stringify({ rpcTypes, delegationEvents, audio }, null, 2);
     const evidenceDir = path.join(tmpdir(), "paseo-conversation-evidence");
