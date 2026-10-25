@@ -197,7 +197,7 @@ export function ConversationCallAction({
       >
         {icon}
       </ToolbarButton>
-      {isTarget ? <CallMuteAction /> : null}
+      <View style={styles.touchTarget}>{isTarget ? <CallMuteAction /> : null}</View>
     </View>
   );
 }

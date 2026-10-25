@@ -49,56 +49,70 @@ test("denied microphone access stays visible with retry on a compact conversatio
   }
 });
 
-test("second composer press cancels microphone connection across navigation", async ({
-  page,
-}, testInfo) => {
-  const workspace = await seedWorkspace({ repoPrefix: "paseo-call-cancel-", git: false });
-  try {
-    const pi = await workspace.client.createAgent({
-      provider: "pi",
-      cwd: workspace.workspaceDirectory,
-      workspaceId: workspace.workspaceId,
-      title: "Connecting call target",
-    });
-    const serverId = await getServerId();
-    await page.addInitScript(() => {
-      navigator.mediaDevices.getUserMedia = () => new Promise(() => {});
-    });
-    await page.goto(`/h/${serverId}/agent/${pi.id}`);
-    const phone = page.getByTestId("conversation-call-start");
-    await expect(phone).toBeVisible();
-    await page.mouse.move(0, 0);
-    const idleBackground = await phone.evaluate(
-      (button) => getComputedStyle(button).backgroundColor,
-    );
-    await phone.click();
-    await page.mouse.move(0, 0);
-    await expect
-      .poll(() => phone.evaluate((button) => getComputedStyle(button).backgroundColor))
-      .not.toBe(idleBackground);
-    await expect(phone).toHaveAttribute("aria-pressed", "true");
-    await expect(phone).toHaveAccessibleName("Cancel call");
-    await page.screenshot({ path: testInfo.outputPath("call-connecting.png") });
-    await phone.click();
-    await page.mouse.move(0, 0);
-    await expect(phone).toHaveAttribute("aria-pressed", "false");
-    await phone.blur();
-    await phone.hover();
-    await page.mouse.move(500, 400);
-    await expect
-      .poll(() => phone.evaluate((button) => getComputedStyle(button).backgroundColor))
-      .toBe(idleBackground);
-    await expect(phone).toHaveAccessibleName("Call this Pi agent with GPT-Live");
-    await expect(page.getByTestId("conversation-call-host")).toHaveCount(0);
-    await openSettings(page);
-    await expect(page.getByTestId("conversation-call-host")).toHaveCount(0);
-    await expect(page.locator("audio[data-testid='conversation-call-audio']")).toHaveCount(0);
-    const agents = await workspace.client.fetchAgents();
-    expect(agents.entries.find((entry) => entry.agent.id === pi.id)?.agent.status).toBe("idle");
-  } finally {
-    await workspace.cleanup();
-  }
-});
+for (const width of [1280, 390]) {
+  test(`phone geometry stays stable while connecting and cancelling at ${width}px`, async ({
+    page,
+  }, testInfo) => {
+    const workspace = await seedWorkspace({ repoPrefix: "paseo-call-cancel-", git: false });
+    try {
+      const pi = await workspace.client.createAgent({
+        provider: "pi",
+        cwd: workspace.workspaceDirectory,
+        workspaceId: workspace.workspaceId,
+        title: "Connecting call target",
+      });
+      const serverId = await getServerId();
+      await page.setViewportSize({ width, height: 900 });
+      await page.addInitScript(() => {
+        navigator.mediaDevices.getUserMedia = () => new Promise(() => {});
+      });
+      await page.goto(`/h/${serverId}/agent/${pi.id}`);
+      const phone = page.getByTestId("conversation-call-start");
+      await expect(phone).toBeVisible();
+      const idleBox = await phone.boundingBox();
+      expect(idleBox).not.toBeNull();
+      await page.mouse.move(0, 0);
+      const idleBackground = await phone.evaluate(
+        (button) => getComputedStyle(button).backgroundColor,
+      );
+      await phone.click();
+      await page.mouse.move(0, 0);
+      await expect
+        .poll(() => phone.evaluate((button) => getComputedStyle(button).backgroundColor))
+        .not.toBe(idleBackground);
+      await expect(phone).toHaveAttribute("aria-pressed", "true");
+      await expect(phone).toHaveAccessibleName("Cancel call");
+      expect(await phone.boundingBox()).toEqual(idleBox);
+      await page.getByRole("button", { name: "Mute microphone", exact: true }).click();
+      await expect(
+        page.getByRole("button", { name: "Unmute microphone", exact: true }),
+      ).toHaveAttribute("aria-pressed", "true");
+      expect(await phone.boundingBox()).toEqual(idleBox);
+      await page.screenshot({ path: testInfo.outputPath("call-connecting.png") });
+      await phone.click();
+      await page.mouse.move(0, 0);
+      await expect(phone).toHaveAttribute("aria-pressed", "false");
+      await phone.blur();
+      await phone.hover();
+      await page.mouse.move(500, 400);
+      await expect
+        .poll(() => phone.evaluate((button) => getComputedStyle(button).backgroundColor))
+        .toBe(idleBackground);
+      await expect(phone).toHaveAccessibleName("Call this Pi agent with GPT-Live");
+      expect(await phone.boundingBox()).toEqual(idleBox);
+      await expect(page.getByRole("button", { name: /mute microphone/i })).toHaveCount(0);
+      await expect(page.getByTestId("conversation-call-host")).toHaveCount(0);
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await openSettings(page);
+      await expect(page.getByTestId("conversation-call-host")).toHaveCount(0);
+      await expect(page.locator("audio[data-testid='conversation-call-audio']")).toHaveCount(0);
+      const agents = await workspace.client.fetchAgents();
+      expect(agents.entries.find((entry) => entry.agent.id === pi.id)?.agent.status).toBe("idle");
+    } finally {
+      await workspace.cleanup();
+    }
+  });
+}
 
 test("normal coding question reaches the captured Pi and returns an actual answer and nonzero audio", async ({
   page,
@@ -136,10 +150,21 @@ test("normal coding question reaches the captured Pi and returns an actual answe
       });
     });
     await page.goto(`/h/${serverId}/agent/${pi.id}`);
-    await expect(page.getByTestId("conversation-call-start")).toBeVisible({ timeout: 60000 });
-    await page.getByTestId("conversation-call-start").click();
-    const host = page.getByTestId("conversation-call-host");
     const phone = page.getByTestId("conversation-call-start");
+    await expect(phone).toBeVisible({ timeout: 60000 });
+    const viewports = [
+      { width: 1280, height: 900 },
+      { width: 390, height: 844 },
+    ];
+    const idleBoxes = new Map<number, Awaited<ReturnType<typeof phone.boundingBox>>>();
+    for (const viewport of viewports) {
+      await page.setViewportSize(viewport);
+      await expect(phone).toBeVisible();
+      idleBoxes.set(viewport.width, await phone.boundingBox());
+    }
+    await page.setViewportSize(viewports[0]);
+    await phone.click();
+    const host = page.getByTestId("conversation-call-host");
     await expect(phone).toHaveAccessibleName("End call", { timeout: 90000 });
     await expect(phone).toHaveAttribute("aria-pressed", "true");
     await expect(host).toHaveCount(0);
@@ -194,12 +219,16 @@ test("normal coding question reaches the captured Pi and returns an actual answe
     expect(rpcTypes).toContain("conversation.call.start.request");
     for (const colorScheme of ["light", "dark"] as const) {
       await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
-      for (const viewport of [
-        { width: 1280, height: 900 },
-        { width: 390, height: 844 },
-      ]) {
+      for (const viewport of viewports) {
         await page.setViewportSize(viewport);
         await expect(phone).toBeVisible();
+        await expect.poll(() => phone.boundingBox()).toEqual(idleBoxes.get(viewport.width));
+        await page.getByRole("button", { name: "Mute microphone", exact: true }).click();
+        await expect(
+          page.getByRole("button", { name: "Unmute microphone", exact: true }),
+        ).toHaveAttribute("aria-pressed", "true");
+        expect(await phone.boundingBox()).toEqual(idleBoxes.get(viewport.width));
+        await page.getByRole("button", { name: "Unmute microphone", exact: true }).click();
         await expect
           .poll(async () => (await phone.boundingBox())?.width ?? 0)
           .toBeGreaterThanOrEqual(44);
@@ -225,6 +254,7 @@ test("normal coding question reaches the captured Pi and returns an actual answe
     await expect(page).toHaveURL(new RegExp(`/h/${serverId}/workspace/`));
     await phone.click();
     await expect(phone).toHaveAttribute("aria-pressed", "false");
+    await expect.poll(() => phone.boundingBox()).toEqual(idleBoxes.get(390));
     await expect(host).toHaveCount(0);
     await expect(page.locator("audio[data-testid='conversation-call-audio']")).toHaveCount(0);
     const evidence = JSON.stringify({ rpcTypes, delegationEvents, audio }, null, 2);
