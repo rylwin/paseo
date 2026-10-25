@@ -33,6 +33,7 @@ export interface NativeMediaDependencies {
   acquire(): Promise<NativeMicrophone>;
   startAudio(): void;
   stopAudio(): void;
+  setSpeaker?(enabled: boolean): Promise<void>;
 }
 
 /** The hardware boundary is injected so cancellation can be tested without a phone. */
@@ -122,6 +123,9 @@ export class NativeCallMedia implements CallMedia {
   }
   async play() {
     return true;
+  }
+  async setSpeaker(enabled: boolean) {
+    if (!this.stopped && this.routed) await this.dependencies.setSpeaker?.(enabled);
   }
   stop() {
     if (this.stopped) return;

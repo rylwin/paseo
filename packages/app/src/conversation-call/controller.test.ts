@@ -12,6 +12,7 @@ function fixture() {
   const ended: string[] = [];
   let stopped = 0;
   const mutes: boolean[] = [];
+  const speakers: boolean[] = [];
   let disconnected = () => {};
   let events: MediaEvents | null = null;
   let receive: (callId: string, event: ConversationCallEvent) => void = () => {};
@@ -26,6 +27,9 @@ function fixture() {
     async answer() {},
     mute(value) {
       mutes.push(value);
+    },
+    async setSpeaker(value) {
+      speakers.push(value);
     },
     async play() {
       return true;
@@ -66,6 +70,7 @@ function fixture() {
     ended,
     answer,
     mutes,
+    speakers,
     disconnect: () => disconnected(),
     receive: (id: string, event: ConversationCallEvent) => receive(id, event),
     get events() {
@@ -78,6 +83,25 @@ function fixture() {
   };
 }
 const target = { serverId: "host1", agentId: "pi1", label: "Host one / Pi one" };
+
+test("speaker state follows native reports, not button presses, and late reports cannot revive ended calls", async () => {
+  const f = fixture();
+  const starting = f.controller.start(target, f.signaling);
+  f.events.audioOutput?.({ route: "speaker", canToggle: true, pending: false, error: "" });
+  await f.controller.toggleSpeaker();
+  expect(f.speakers).toEqual([false]);
+  expect(f.controller.getSnapshot()).toMatchObject({ audioOutput: { route: "speaker" } });
+  f.events.audioOutput?.({ route: "earpiece", canToggle: true, pending: false, error: "" });
+  expect(f.controller.getSnapshot()).toMatchObject({ audioOutput: { route: "earpiece" } });
+  f.events.audioOutput?.({ route: "headset", canToggle: false, pending: false, error: "" });
+  await f.controller.toggleSpeaker();
+  expect(f.speakers).toEqual([false]);
+  f.controller.end();
+  f.events.audioOutput?.({ route: "speaker", canToggle: true, pending: false, error: "" });
+  expect(f.controller.getSnapshot()).toMatchObject({ phase: "ended", audioOutput: null });
+  f.answer({ sdp: "late" });
+  await starting;
+});
 
 test("unsupported hosts fail visibly before acquiring a microphone", async () => {
   const f = fixture();

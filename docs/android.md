@@ -134,6 +134,18 @@ shows an ended state with a retry action. Ending voice does not stop accepted Pi
 work. Dictation, legacy voice mode, and calls share exclusive microphone
 ownership.
 
+Calls default to hands-free speaker unless a Bluetooth or wired headset is
+available. The compact strip's Speaker control switches the handset fallback
+between speaker and earpiece; it is unavailable while a headset owns output or
+on devices without an earpiece. Android communication/voice-call volume applies;
+the app does not raise the user's volume. The InCallManager patch exposes its
+existing default-device setter because its public forced-route APIs override
+headset priority. Route indicators follow native reports, not requested state.
+
+While the native call strip is visible, it owns the top safe-area inset. Its
+content subtree receives a zero top inset so app headers do not apply it again;
+left, right, and bottom insets remain owned by their existing surfaces.
+
 Calls require a rebuilt standalone app with `react-native-webrtc` and
 `react-native-incall-manager`; Expo Go cannot load these modules. There is no
 background-call service, lock-screen call UI, or automatic resume. The config

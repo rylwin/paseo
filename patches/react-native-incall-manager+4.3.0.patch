@@ -1,0 +1,58 @@
+diff --git a/node_modules/react-native-incall-manager/android/src/main/java/com/zxcpoiu/incallmanager/InCallManagerModule.java b/node_modules/react-native-incall-manager/android/src/main/java/com/zxcpoiu/incallmanager/InCallManagerModule.java
+index b82ccb9..70cd5fa 100644
+--- a/node_modules/react-native-incall-manager/android/src/main/java/com/zxcpoiu/incallmanager/InCallManagerModule.java
++++ b/node_modules/react-native-incall-manager/android/src/main/java/com/zxcpoiu/incallmanager/InCallManagerModule.java
+@@ -2037,6 +2037,22 @@ public class InCallManagerModule extends ReactContextBaseJavaModule implements L
+ 
+ 
+ 
++    // Change only the handset fallback; automatic Bluetooth/wired priority remains intact.
++    @ReactMethod
++    public void setDefaultAudioRoute(String route, Promise promise) {
++        runOnLifecycleThread(() -> {
++            if (route.equals(AudioDevice.SPEAKER_PHONE.name())) {
++                setDefaultAudioDevice(AudioDevice.SPEAKER_PHONE);
++            } else if (route.equals(AudioDevice.EARPIECE.name())) {
++                setDefaultAudioDevice(AudioDevice.EARPIECE);
++            } else {
++                promise.reject("INVALID_AUDIO_ROUTE", "Expected SPEAKER_PHONE or EARPIECE");
++                return;
++            }
++            promise.resolve(getAudioDeviceStatusMap());
++        });
++    }
++
+     /**
+      * Changes default audio device.
+      * TODO(henrika): add usage of this method in the AppRTCMobile client.
+diff --git a/node_modules/react-native-incall-manager/index.d.ts b/node_modules/react-native-incall-manager/index.d.ts
+index c8ebe9d..6662b90 100644
+--- a/node_modules/react-native-incall-manager/index.d.ts
++++ b/node_modules/react-native-incall-manager/index.d.ts
+@@ -53,6 +53,11 @@ declare class InCallManager {
+ 
+   getAudioUri(audioType: string, fileType: string): Promise<string | null>;
+ 
++  setDefaultAudioRoute(route: "SPEAKER_PHONE" | "EARPIECE"): Promise<{
++    selectedAudioDevice: string;
++    availableAudioDeviceList: string;
++  }>;
++
+   chooseAudioRoute(route: string): Promise<any>;
+ 
+   requestAudioFocus(): Promise<any>;
+diff --git a/node_modules/react-native-incall-manager/index.js b/node_modules/react-native-incall-manager/index.js
+index c488a06..970e0f3 100644
+--- a/node_modules/react-native-incall-manager/index.js
++++ b/node_modules/react-native-incall-manager/index.js
+@@ -156,6 +156,10 @@ class InCallManager {
+         }
+     }
+ 
++    async setDefaultAudioRoute(route) {
++        return await _InCallManager.setDefaultAudioRoute(route);
++    }
++
+     async chooseAudioRoute(route) {
+         let result = await _InCallManager.chooseAudioRoute(route);
+         return result;

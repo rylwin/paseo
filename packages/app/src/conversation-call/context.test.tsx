@@ -12,6 +12,7 @@ const boundary = vi.hoisted(() => ({
   title: "Original agent" as string | undefined,
   navigate: vi.fn(),
   play: vi.fn(),
+  setSpeaker: vi.fn(),
   voice: { isVoiceMode: false, isVoiceSwitching: false },
   events: null as MediaEvents | null,
   answer: vi.fn(),
@@ -19,6 +20,16 @@ const boundary = vi.hoisted(() => ({
   stop: vi.fn(),
   start: vi.fn(),
 }));
+vi.mock("react-native-safe-area-context", async (importOriginal) => {
+  const actual = await importOriginal<object>();
+  const { createContext, useContext } = await import("react");
+  const SafeAreaInsetsContext = createContext({ top: 24, bottom: 16, left: 0, right: 0 });
+  return {
+    ...actual,
+    SafeAreaInsetsContext,
+    useSafeAreaInsets: () => useContext(SafeAreaInsetsContext),
+  };
+});
 vi.mock("@/stores/navigation-active-workspace-store", () => ({
   useActiveWorkspaceSelection: () =>
     boundary.focused ? { serverId: "host", workspaceId: "workspace" } : null,
@@ -82,6 +93,7 @@ vi.mock("./media", () => ({
       stop: boundary.stop,
       mute: vi.fn(),
       play: boundary.play,
+      setSpeaker: boundary.setSpeaker,
     };
   },
 }));
@@ -92,12 +104,18 @@ vi.mock("@/components/ui/pane-content-toolbar", () => ({
     disabled,
     onPress,
     testID,
+    style,
+    round,
+    hitSlop,
   }: {
     label: string;
     selected?: boolean;
     disabled?: boolean;
     onPress: () => void;
     testID?: string;
+    style?: React.CSSProperties;
+    round?: boolean;
+    hitSlop?: number;
   }) => (
     <button
       type="button"
@@ -106,6 +124,9 @@ vi.mock("@/components/ui/pane-content-toolbar", () => ({
       disabled={disabled}
       onClick={onPress}
       data-testid={testID}
+      style={style}
+      data-round={round}
+      data-hit-slop={hitSlop}
     />
   ),
 }));
@@ -124,11 +145,20 @@ vi.mock("lucide-react-native", () => {
     AlertTriangle: Icon,
     CircleAlert: Icon,
     XCircle: Icon,
+    Volume2: Icon,
+    Smartphone: Icon,
+    Headphones: Icon,
   };
 });
 vi.stubGlobal("React", React);
 vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 import { ConversationCallAction, ConversationCallProvider } from "./context";
+import { SafeAreaInsetsContext, useSafeAreaInsets } from "react-native-safe-area-context";
+
+function NavigationInsetProbe() {
+  const insets = useSafeAreaInsets();
+  return <output data-testid="navigation-insets">{JSON.stringify(insets)}</output>;
+}
 
 let root: Root;
 let container: HTMLDivElement;
@@ -157,13 +187,16 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
 });
-function render(agentId = "pi") {
+function render(agentId = "pi", insets = { top: 24, bottom: 16, left: 0, right: 0 }) {
   boundary.focused = agentId;
   act(() =>
     root.render(
-      <ConversationCallProvider>
-        <ConversationCallAction serverId="host" agentId={agentId} />
-      </ConversationCallProvider>,
+      <SafeAreaInsetsContext.Provider value={insets}>
+        <ConversationCallProvider>
+          <ConversationCallAction serverId="host" agentId={agentId} />
+          <NavigationInsetProbe />
+        </ConversationCallProvider>
+      </SafeAreaInsetsContext.Provider>,
     ),
   );
 }
@@ -289,6 +322,113 @@ test("native uses the same connecting toggle and compact mute/end strip, then of
   expect(boundary.stop).toHaveBeenCalledTimes(1);
   expect(container.textContent).toContain("Call ended");
   expect(container.textContent).toContain("Call again");
+});
+
+test("native speaker control reflects actual routes, waits for acknowledgement and preserves headset output", async () => {
+  boundary.native = true;
+  render();
+  await click();
+  const speaker = () =>
+    container.querySelector<HTMLButtonElement>('[data-testid="conversation-call-speaker"]')!;
+  expect(speaker()).not.toBeNull();
+  expect(speaker().disabled).toBe(true);
+  act(() =>
+    boundary.events!.audioOutput?.({
+      route: "speaker",
+      canToggle: true,
+      pending: false,
+      error: "",
+    }),
+  );
+  expect(speaker().getAttribute("aria-label")).toBe("Speaker on. Switch to earpiece");
+  expect(speaker().getAttribute("aria-selected")).toBe("true");
+  await act(async () => speaker().click());
+  expect(boundary.setSpeaker).toHaveBeenCalledWith(false);
+  expect(speaker().getAttribute("aria-selected")).toBe("true");
+  act(() =>
+    boundary.events!.audioOutput?.({
+      route: "earpiece",
+      canToggle: true,
+      pending: false,
+      error: "",
+    }),
+  );
+  expect(speaker().getAttribute("aria-label")).toBe("Speaker off. Switch to speaker");
+  expect(speaker().getAttribute("aria-selected")).toBe("false");
+  act(() =>
+    boundary.events!.audioOutput?.({
+      route: "headset",
+      canToggle: false,
+      pending: false,
+      error: "",
+    }),
+  );
+  expect(speaker().getAttribute("aria-label")).toBe("Headset audio connected");
+  expect(speaker().disabled).toBe(true);
+  act(() =>
+    boundary.events!.audioOutput?.({
+      route: "earpiece",
+      canToggle: true,
+      pending: false,
+      error: "Could not change audio output. Try again.",
+    }),
+  );
+  expect(container.textContent).toContain("Could not change audio output. Try again.");
+  expect(container.querySelector('[aria-label="Mute microphone"]')).not.toBeNull();
+});
+
+test("native call strip owns the top inset once and updates after rotation, then restores it", async () => {
+  boundary.native = true;
+  render();
+  const navigationInsets = () =>
+    JSON.parse(container.querySelector('[data-testid="navigation-insets"]')!.textContent!);
+  expect(navigationInsets()).toEqual({ top: 24, bottom: 16, left: 0, right: 0 });
+  await click();
+  const safeArea = () =>
+    container.querySelector<HTMLElement>('[data-testid="conversation-call-safe-area"]')!;
+  expect(safeArea()).not.toBeNull();
+  expect(safeArea().style.paddingTop).toBe("24px");
+  expect(navigationInsets()).toEqual({ top: 0, bottom: 16, left: 0, right: 0 });
+  render("pi", { top: 0, bottom: 12, left: 30, right: 8 });
+  expect(safeArea().style.paddingTop).toBe("0px");
+  expect(safeArea().style.paddingLeft).toBe("30px");
+  expect(safeArea().style.paddingRight).toBe("8px");
+  expect(navigationInsets()).toEqual({ top: 0, bottom: 12, left: 30, right: 8 });
+  await click();
+  const dismiss = Array.from(container.querySelectorAll<HTMLElement>('[role="button"]')).find(
+    (button) => button.textContent === "Dismiss call",
+  )!;
+  act(() => dismiss.click());
+  render();
+  expect(safeArea()).toBeNull();
+  expect(navigationInsets().top).toBe(24);
+});
+
+test("composer phone keeps the neighboring 28px circular geometry in all call states without a mute slot", async () => {
+  render();
+  const check = () => {
+    expect(phone().style.width).toBe("28px");
+    expect(phone().style.height).toBe("28px");
+    expect(phone().style.minWidth).toBe("");
+    expect(phone().getAttribute("data-round")).toBe("true");
+    expect(phone().getAttribute("data-hit-slop")).toBe("8");
+    expect(phone().parentElement!.querySelectorAll("button")).toHaveLength(1);
+  };
+  check();
+  await click();
+  check();
+  act(() => boundary.events!.connected());
+  check();
+});
+
+test("web retains its existing insets while the call strip is present", async () => {
+  render();
+  await click();
+  expect(
+    JSON.parse(container.querySelector('[data-testid="navigation-insets"]')!.textContent!).top,
+  ).toBe(24);
+  expect(container.querySelector('[data-testid="conversation-call-safe-area"]')).toBeNull();
+  expect(container.querySelector('[data-testid="conversation-call-speaker"]')).toBeNull();
 });
 
 test("disconnected and voice-mode conflicts disable starting on web and native", () => {

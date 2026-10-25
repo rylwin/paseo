@@ -1,13 +1,22 @@
-import { PermissionsAndroid, Platform } from "react-native";
+import { DeviceEventEmitter, PermissionsAndroid, Platform } from "react-native";
 import { mediaDevices, RTCPeerConnection } from "react-native-webrtc";
 import InCallManager from "react-native-incall-manager";
 import { nativeMicrophoneOwner } from "@/audio/microphone-owner";
 import { NativeCallMedia } from "./native-media";
+import { NativeCallAudio } from "./native-audio";
 import type { CallMedia, MediaEvents } from "./controller";
 
 export const supportsCalls = Platform.OS === "android";
 
 export function createCallMedia(events: MediaEvents): CallMedia {
+  const audio = new NativeCallAudio(
+    InCallManager,
+    (listener) => {
+      const subscription = DeviceEventEmitter.addListener("onAudioDeviceChanged", listener);
+      return () => subscription.remove();
+    },
+    (state) => events.audioOutput?.(state),
+  );
   return new NativeCallMedia(
     {
       reserveMicrophone: () => nativeMicrophoneOwner.acquire(),
@@ -45,15 +54,9 @@ export function createCallMedia(events: MediaEvents): CallMedia {
           },
         };
       },
-      startAudio() {
-        InCallManager.start({ media: "audio", auto: true });
-        // No proximity-driven screen-off or locked-phone call contract.
-        InCallManager.stopProximitySensor();
-        InCallManager.setKeepScreenOn(false);
-      },
-      stopAudio() {
-        InCallManager.stop();
-      },
+      startAudio: () => audio.start(),
+      stopAudio: () => audio.stop(),
+      setSpeaker: (enabled) => audio.setSpeaker(enabled),
     },
     events,
   );

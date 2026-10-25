@@ -8,6 +8,11 @@ import { join, relative } from "node:path";
 // workspace root live in their workspace's own node_modules, and patch-package resolves
 // the patch's node_modules/... paths relative to its working directory.
 const patchedPackages = [
+  // Expose the existing handset fallback setter without overriding automatic headset priority.
+  {
+    nodeModulesPath: "node_modules/react-native-incall-manager",
+    patchPrefix: "react-native-incall-manager+",
+  },
   // Backport for expo-modules-core 57.0.23: https://github.com/expo/expo/pull/49634.
   // Remove when the installed Expo SDK includes the Activity recreation fix.
   {

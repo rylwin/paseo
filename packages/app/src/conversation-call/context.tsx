@@ -9,11 +9,22 @@ import {
   type ReactNode,
 } from "react";
 import { AppState, Text, View } from "react-native";
+import { SafeAreaInsetsContext, useSafeAreaInsets } from "react-native-safe-area-context";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { Phone, PhoneOutgoing, Mic, MicOff, PhoneOff } from "lucide-react-native";
+import {
+  Phone,
+  PhoneOutgoing,
+  Mic,
+  MicOff,
+  PhoneOff,
+  Volume2,
+  Smartphone,
+  Headphones,
+} from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { ToolbarButton } from "@/components/ui/pane-content-toolbar";
+import { CONTROL_HEIGHTS } from "@/components/ui/control-geometry";
 import { Alert } from "@/components/ui/alert";
 import { isWeb } from "@/constants/platform";
 import { useSessionStore } from "@/stores/session-store";
@@ -51,6 +62,19 @@ const ThemedLivePhone = withUnistyles(Phone, (theme) => ({
   size: theme.iconSize.md,
 }));
 const ThemedConnectingPhone = withUnistyles(PhoneOutgoing, (theme) => ({
+  color: theme.colors.foreground,
+  size: theme.iconSize.md,
+}));
+
+const ThemedSpeaker = withUnistyles(Volume2, (theme) => ({
+  color: theme.colors.foreground,
+  size: theme.iconSize.md,
+}));
+const ThemedHandset = withUnistyles(Smartphone, (theme) => ({
+  color: theme.colors.foreground,
+  size: theme.iconSize.md,
+}));
+const ThemedHeadphones = withUnistyles(Headphones, (theme) => ({
   color: theme.colors.foreground,
   size: theme.iconSize.md,
 }));
@@ -93,6 +117,17 @@ export function ConversationCallProvider({ children }: { children: ReactNode }) 
         newId: () => crypto.randomUUID(),
       }),
   );
+  const snapshot = useSyncExternalStore(
+    controller.subscribe,
+    controller.getSnapshot,
+    controller.getSnapshot,
+  );
+  const insets = useSafeAreaInsets();
+  const ownsTopInset = !isWeb && supportsCalls && snapshot.phase !== "idle";
+  const contentInsets = useMemo(
+    () => (ownsTopInset ? { ...insets, top: 0 } : insets),
+    [insets, ownsTopInset],
+  );
   useEffect(() => () => controller.end(), [controller]);
   useEffect(() => {
     if (isWeb || !supportsCalls) return;
@@ -109,8 +144,22 @@ export function ConversationCallProvider({ children }: { children: ReactNode }) 
     <CallContext.Provider value={controller}>
       {supportsCalls ? (
         <View style={styles.root}>
-          <ConversationCallHost />
-          <View style={styles.root}>{children}</View>
+          {ownsTopInset ? (
+            <View
+              testID="conversation-call-safe-area"
+              style={[
+                styles.safeArea,
+                { paddingTop: insets.top, paddingLeft: insets.left, paddingRight: insets.right },
+              ]}
+            >
+              <ConversationCallHost />
+            </View>
+          ) : (
+            <ConversationCallHost />
+          )}
+          <SafeAreaInsetsContext.Provider value={contentInsets}>
+            <View style={styles.root}>{children}</View>
+          </SafeAreaInsetsContext.Provider>
         </View>
       ) : (
         children
@@ -134,9 +183,55 @@ function CallMuteAction() {
       selected={snapshot.muted}
       aria-pressed={snapshot.muted}
       onPress={mute}
-      style={styles.touchTarget}
+      compact={!isWeb}
+      round={!isWeb}
+      hitSlop={8}
+      style={isWeb ? styles.touchTarget : undefined}
     >
       {snapshot.muted ? <ThemedMicOff /> : <ThemedMic />}
+    </ToolbarButton>
+  );
+}
+
+function CallSpeakerAction() {
+  const controller = useCall();
+  const snapshot = useSyncExternalStore(
+    controller.subscribe,
+    controller.getSnapshot,
+    controller.getSnapshot,
+  );
+  const toggle = useCallback(() => {
+    void controller.toggleSpeaker();
+  }, [controller]);
+  // Native calls currently ship on Android only. Web owns its browser-selected output.
+  if (isWeb || snapshot.phase === "idle") return null;
+  const output = snapshot.audioOutput;
+  const speaker = output?.route === "speaker";
+  const headset = output?.route === "headset";
+  let label = "Audio output unavailable";
+  let icon = <ThemedHandset />;
+  if (output?.route === "earpiece") label = "Speaker off. Switch to speaker";
+  if (speaker) {
+    label = "Speaker on. Switch to earpiece";
+    icon = <ThemedSpeaker />;
+  }
+  if (headset) {
+    label = "Headset audio connected";
+    icon = <ThemedHeadphones />;
+  }
+  return (
+    <ToolbarButton
+      label={label}
+      testID="conversation-call-speaker"
+      onPress={toggle}
+      selected={speaker}
+      aria-pressed={speaker}
+      disabled={!output?.canToggle || output.pending}
+      compact
+      round
+      hitSlop={8}
+    >
+      {icon}
     </ToolbarButton>
   );
 }
@@ -199,7 +294,9 @@ export function ConversationCallAction({
         testID="conversation-call-start"
         onPress={toggle}
         disabled={disabled}
-        style={styles.touchTarget}
+        round
+        hitSlop={8}
+        style={styles.composerAction}
       >
         {icon}
       </ToolbarButton>
@@ -251,15 +348,29 @@ function ConversationCallHost() {
               accessibilityLabel={`Return to call with ${snapshot.target.label}`}
               onPress={returnToCall}
               variant="ghost"
+              size={isWeb ? "md" : "sm"}
               style={styles.identity}
               leftIcon={snapshot.phase === "connecting" ? connectingPhoneIcon : livePhoneIcon}
               trailing={identity}
             />
+            <CallSpeakerAction />
             <CallMuteAction />
-            <ToolbarButton label="End call" onPress={end} style={styles.touchTarget}>
+            <ToolbarButton
+              label="End call"
+              onPress={end}
+              compact={!isWeb}
+              round={!isWeb}
+              hitSlop={8}
+              style={isWeb ? styles.touchTarget : undefined}
+            >
               <ThemedPhoneOff />
             </ToolbarButton>
           </View>
+        ) : null}
+        {!isWeb && active && snapshot.audioOutput?.error ? (
+          <Text accessibilityRole="alert" style={styles.outputError}>
+            {snapshot.audioOutput.error}
+          </Text>
         ) : null}
         {snapshot.phase === "ended" ? (
           <Alert
@@ -300,6 +411,7 @@ function ConversationCallHost() {
 
 const styles = StyleSheet.create((theme) => ({
   root: { flex: 1 },
+  safeArea: { backgroundColor: theme.colors.surface3 },
   host: {
     backgroundColor: theme.colors.surface3,
     borderBottomWidth: 1,
@@ -312,5 +424,8 @@ const styles = StyleSheet.create((theme) => ({
   controls: { flexDirection: "row", alignItems: "center", gap: theme.spacing[1] },
   identity: { flex: 1, minWidth: 0, justifyContent: "flex-start" },
   identityText: { flexShrink: 1, fontSize: theme.fontSize.base, color: theme.colors.foreground },
+  outputError: { fontSize: theme.fontSize.sm, color: theme.colors.statusDanger },
+  // Match the neighboring voice/composer controls; hitSlop grows touch area without spacing.
+  composerAction: { width: CONTROL_HEIGHTS.tight, height: CONTROL_HEIGHTS.tight },
   touchTarget: { minWidth: theme.spacing[12], minHeight: theme.spacing[12] },
 }));

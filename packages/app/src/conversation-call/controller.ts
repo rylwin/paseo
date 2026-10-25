@@ -1,4 +1,5 @@
 import type { ConversationCallEvent } from "@getpaseo/protocol/messages";
+import type { CallAudioOutput } from "./native-audio";
 
 export interface CallTarget {
   serverId: string;
@@ -9,6 +10,7 @@ export interface CallMedia {
   offer(): Promise<string>;
   answer(sdp: string): Promise<void>;
   mute(muted: boolean): void;
+  setSpeaker?(enabled: boolean): Promise<void>;
   play(): Promise<boolean>;
   stop(): void;
 }
@@ -16,6 +18,7 @@ export interface MediaEvents {
   connected(): void;
   failed(message: string): void;
   playbackBlocked(blocked: boolean): void;
+  audioOutput?(state: CallAudioOutput): void;
 }
 export interface CallSignaling {
   supported: boolean;
@@ -36,6 +39,7 @@ export type CallSnapshot =
       muted: boolean;
       minimized: boolean;
       playbackBlocked: boolean;
+      audioOutput: CallAudioOutput | null;
       transcript: string;
       delegation: string;
       error: string;
@@ -78,6 +82,7 @@ export class ConversationCallController {
       muted: false,
       minimized: false,
       playbackBlocked: false,
+      audioOutput: null,
       transcript: "",
       delegation: "",
       error: "",
@@ -99,6 +104,9 @@ export class ConversationCallController {
       },
       playbackBlocked: (blocked) => {
         if (this.active?.media === media) this.update({ playbackBlocked: blocked });
+      },
+      audioOutput: (audioOutput) => {
+        if (this.active?.media === media) this.update({ audioOutput });
       },
     });
     const call: ActiveCall = {
@@ -152,6 +160,14 @@ export class ConversationCallController {
     this.update({ muted });
   }
 
+  async toggleSpeaker() {
+    const call = this.active;
+    if (!call || this.snapshot.phase === "idle") return;
+    const output = this.snapshot.audioOutput;
+    if (!output?.canToggle || output.pending) return;
+    await call.media.setSpeaker?.(output.route !== "speaker");
+  }
+
   async play() {
     const call = this.active;
     if (!call) return;
@@ -183,6 +199,7 @@ export class ConversationCallController {
     const call = this.active;
     this.active = null;
     if (!call) return;
+    this.update({ audioOutput: null });
     call.unsubscribe();
     call.media.stop();
     if (call.requested) void call.signaling.end(call.callId).catch(() => {});
