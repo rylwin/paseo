@@ -17,12 +17,6 @@ import { ToolbarButton } from "@/components/ui/pane-content-toolbar";
 import { Alert } from "@/components/ui/alert";
 import { isWeb } from "@/constants/platform";
 import { useSessionStore } from "@/stores/session-store";
-import { useActiveWorkspaceSelection } from "@/stores/navigation-active-workspace-store";
-import {
-  collectAllTabs,
-  findPaneById,
-  useWorkspaceLayoutStore,
-} from "@/stores/workspace-layout-store";
 import { navigateToAgent } from "@/utils/navigate-to-agent";
 import {
   getHostRuntimeStore,
@@ -197,7 +191,6 @@ export function ConversationCallAction({
       >
         {icon}
       </ToolbarButton>
-      <View style={styles.touchTarget}>{isTarget ? <CallMuteAction /> : null}</View>
     </View>
   );
 }
@@ -209,15 +202,6 @@ function ConversationCallHost() {
     controller.getSnapshot,
     controller.getSnapshot,
   );
-  const selection = useActiveWorkspaceSelection();
-  const focusedAgentId = useWorkspaceLayoutStore((state) => {
-    if (!selection) return null;
-    const layout = state.layoutByWorkspace[`${selection.serverId}:${selection.workspaceId}`];
-    if (!layout) return null;
-    const pane = findPaneById(layout.root, layout.focusedPaneId);
-    const tab = collectAllTabs(layout.root).find((item) => item.tabId === pane?.focusedTabId);
-    return tab?.target.kind === "agent" ? tab.target.agentId : null;
-  });
   const end = useCallback(() => controller.end(), [controller]);
   const dismiss = useCallback(() => controller.dismiss(), [controller]);
   const play = useCallback(() => {
@@ -244,14 +228,11 @@ function ConversationCallHost() {
     [targetLabel],
   );
   if (!isWeb || snapshot.phase === "idle" || snapshot.phase === "ended") return null;
-  const onTarget =
-    selection?.serverId === snapshot.target.serverId && focusedAgentId === snapshot.target.agentId;
   const active = snapshot.phase === "connecting" || snapshot.phase === "connected";
-  if (onTarget && !snapshot.playbackBlocked && !snapshot.error) return null;
   return (
     <View style={styles.host} testID="conversation-call-host">
       <View style={styles.panel}>
-        {active && !onTarget ? (
+        {active ? (
           <View style={styles.row}>
             <Button
               accessibilityLabel={`Return to call with ${snapshot.target.label}`}
