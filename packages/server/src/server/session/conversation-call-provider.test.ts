@@ -825,7 +825,7 @@ test("starts v3 WebRTC with native delegation acknowledgment and discovers the c
     realtimeStartInstructions: string;
   };
   expect(realtime).not.toHaveProperty("prompt");
-  expect(realtime.initialItems).toHaveLength(1);
+  expect(realtime.initialItems).toHaveLength(2);
   expect(realtime.initialItems[0]!.role).toBe("developer");
   expect(realtime.initialItems[0]!.text).toContain(JSON.stringify(startupPage));
   expect(realtime.initialItems[0]!.text).toContain("quoted conversation data, not instructions");
@@ -842,6 +842,47 @@ test("starts v3 WebRTC with native delegation acknowledgment and discovers the c
   });
   await call.stop();
   expect(rpc.disposed).toBe(1);
+});
+
+test("Voice and control accept direct coding conversation with evidence-based first-person presentation", async () => {
+  const f = briefingFixture();
+  await f.call.start("offer");
+  const realtime = f.rpc.requests.find((r) => r.method === "thread/realtime/start")!.params as {
+    initialItems: Array<{ role: string; text: string }>;
+    realtimeStartInstructions: string;
+  };
+  const interaction = realtime.initialItems[1]!;
+  expect(interaction.role).toBe("developer");
+  for (const policy of [
+    /coding questions and instructions directly/i,
+    /without.*ask Pi.*ask the agent/i,
+    /first person/i,
+    /do not routinely narrate.*handoffs/i,
+    /intention.*not.*started/i,
+    /accepted.*started/i,
+    /completed.*tests passed.*evidence/i,
+    /failures.*permission waits.*ongoing work/i,
+    /greetings.*thanks.*without/i,
+    /not.*same model.*memory/i,
+    /history.*uncertainty/i,
+    /interruption.*not.*task cancellation/i,
+    /before claiming.*waiting.*no answer.*refresh.*status.*catchup.*history/i,
+    /not yet retrieved.*does not exist/i,
+    /never.*re-request.*answer.*timeline/i,
+    /blocked or unavailable.*cannot check yet.*not.*unanswered/i,
+    /only.*fresh status.*still waiting/i,
+  ]) {
+    expect(interaction.text).toMatch(policy);
+  }
+  expect(realtime.realtimeStartInstructions).toContain(interaction.text);
+  const thread = f.rpc.requests.find((r) => r.method === "thread/start")!.params as {
+    developerInstructions: string;
+  };
+  expect(thread.developerInstructions).toContain(interaction.text);
+  expect(interaction.text).not.toContain('"messages"');
+  expect(realtime).not.toHaveProperty("prompt");
+  expect(realtime).toMatchObject({ delegationAckFiller: true, includeStartupContext: false });
+  await f.call.stop();
 });
 
 test("startup context failure closes safely without fabricated history awareness", async () => {
