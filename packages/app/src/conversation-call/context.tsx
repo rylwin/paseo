@@ -10,7 +10,7 @@ import {
 } from "react";
 import { Text, View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { Phone, PhoneOutgoing, Mic, MicOff, PhoneOff } from "lucide-react-native";
+import { Phone, PhoneOutgoing, PhoneOff } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { ToolbarButton } from "@/components/ui/pane-content-toolbar";
@@ -35,14 +35,6 @@ import { ConversationCallController, type CallSignaling, type CallTarget } from 
 import { createCallMedia } from "./media";
 
 const CallContext = createContext<ConversationCallController | null>(null);
-const ThemedMic = withUnistyles(Mic, (theme) => ({
-  color: theme.colors.foreground,
-  size: theme.iconSize.md,
-}));
-const ThemedMicOff = withUnistyles(MicOff, (theme) => ({
-  color: theme.colors.foreground,
-  size: theme.iconSize.md,
-}));
 const ThemedPhoneOff = withUnistyles(PhoneOff, (theme) => ({
   color: theme.colors.statusDanger,
   size: theme.iconSize.md,
@@ -113,28 +105,6 @@ export function ConversationCallProvider({ children }: { children: ReactNode }) 
   );
 }
 
-function CallMuteAction() {
-  const controller = useCall();
-  const snapshot = useSyncExternalStore(
-    controller.subscribe,
-    controller.getSnapshot,
-    controller.getSnapshot,
-  );
-  const mute = useCallback(() => controller.toggleMute(), [controller]);
-  if (snapshot.phase !== "connecting" && snapshot.phase !== "connected") return null;
-  return (
-    <ToolbarButton
-      label={snapshot.muted ? "Unmute microphone" : "Mute microphone"}
-      selected={snapshot.muted}
-      aria-pressed={snapshot.muted}
-      onPress={mute}
-      style={styles.touchTarget}
-    >
-      {snapshot.muted ? <ThemedMicOff /> : <ThemedMic />}
-    </ToolbarButton>
-  );
-}
-
 /** Only the normal active-agent composer supplies this slot; drafts and native keep their controls. */
 export function ConversationCallAction({
   serverId,
@@ -197,7 +167,6 @@ export function ConversationCallAction({
       >
         {icon}
       </ToolbarButton>
-      <View style={styles.touchTarget}>{isTarget ? <CallMuteAction /> : null}</View>
     </View>
   );
 }
@@ -261,7 +230,6 @@ function ConversationCallHost() {
               leftIcon={snapshot.phase === "connecting" ? connectingPhoneIcon : livePhoneIcon}
               trailing={identity}
             />
-            <CallMuteAction />
             <ToolbarButton label="End call" onPress={end} style={styles.touchTarget}>
               <ThemedPhoneOff />
             </ToolbarButton>

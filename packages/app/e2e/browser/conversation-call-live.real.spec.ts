@@ -71,6 +71,8 @@ for (const width of [1280, 390]) {
       await expect(phone).toBeVisible();
       const idleBox = await phone.boundingBox();
       expect(idleBox).not.toBeNull();
+      expect(await phone.locator("..").boundingBox()).toEqual(idleBox);
+      await expect(page.getByRole("button", { name: /mute microphone/i })).toHaveCount(0);
       await page.mouse.move(0, 0);
       const idleBackground = await phone.evaluate(
         (button) => getComputedStyle(button).backgroundColor,
@@ -83,12 +85,20 @@ for (const width of [1280, 390]) {
       await expect(phone).toHaveAttribute("aria-pressed", "true");
       await expect(phone).toHaveAccessibleName("Cancel call");
       expect(await phone.boundingBox()).toEqual(idleBox);
-      await page.getByRole("button", { name: "Mute microphone", exact: true }).click();
-      await expect(
-        page.getByRole("button", { name: "Unmute microphone", exact: true }),
-      ).toHaveAttribute("aria-pressed", "true");
-      expect(await phone.boundingBox()).toEqual(idleBox);
+      await expect(page.getByRole("button", { name: /mute microphone/i })).toHaveCount(0);
+      expect(await phone.locator("..").boundingBox()).toEqual(idleBox);
       await page.screenshot({ path: testInfo.outputPath("call-connecting.png") });
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await openSettings(page);
+      await page.setViewportSize({ width, height: 900 });
+      const host = page.getByTestId("conversation-call-host");
+      await expect(host.getByRole("button")).toHaveCount(2);
+      await expect(page.getByRole("button", { name: /mute microphone/i })).toHaveCount(0);
+      await host
+        .getByRole("button", { name: "Return to call with Connecting call target" })
+        .click();
+      await expect(phone).toHaveAccessibleName("Cancel call");
+      expect(await phone.boundingBox()).toEqual(idleBox);
       await phone.click();
       await page.mouse.move(0, 0);
       await expect(phone).toHaveAttribute("aria-pressed", "false");
@@ -168,11 +178,7 @@ test("normal coding question reaches the captured Pi and returns an actual answe
     await expect(phone).toHaveAccessibleName("End call", { timeout: 90000 });
     await expect(phone).toHaveAttribute("aria-pressed", "true");
     await expect(host).toHaveCount(0);
-    await page.getByRole("button", { name: "Mute microphone", exact: true }).click();
-    await expect(
-      page.getByRole("button", { name: "Unmute microphone", exact: true }),
-    ).toHaveAttribute("aria-pressed", "true");
-    await page.getByRole("button", { name: "Unmute microphone", exact: true }).click();
+    await expect(page.getByRole("button", { name: /mute microphone/i })).toHaveCount(0);
     const audioPeak = page
       .locator("audio[data-testid='conversation-call-audio']")
       .evaluate(async (audio: HTMLAudioElement) => {
@@ -223,12 +229,8 @@ test("normal coding question reaches the captured Pi and returns an actual answe
         await page.setViewportSize(viewport);
         await expect(phone).toBeVisible();
         await expect.poll(() => phone.boundingBox()).toEqual(idleBoxes.get(viewport.width));
-        await page.getByRole("button", { name: "Mute microphone", exact: true }).click();
-        await expect(
-          page.getByRole("button", { name: "Unmute microphone", exact: true }),
-        ).toHaveAttribute("aria-pressed", "true");
-        expect(await phone.boundingBox()).toEqual(idleBoxes.get(viewport.width));
-        await page.getByRole("button", { name: "Unmute microphone", exact: true }).click();
+        await expect(page.getByRole("button", { name: /mute microphone/i })).toHaveCount(0);
+        expect(await phone.locator("..").boundingBox()).toEqual(idleBoxes.get(viewport.width));
         await expect
           .poll(async () => (await phone.boundingBox())?.width ?? 0)
           .toBeGreaterThanOrEqual(44);
@@ -245,6 +247,8 @@ test("normal coding question reaches the captured Pi and returns an actual answe
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(host).toContainText("Harmless live call target");
     await expect(host).not.toContainText(pi.id);
+    await expect(host.getByRole("button")).toHaveCount(2);
+    await expect(page.getByRole("button", { name: /mute microphone/i })).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath("call-away-mobile-dark.png") });
     await page
       .getByRole("button", { name: "Return to call with Harmless live call target", exact: true })
