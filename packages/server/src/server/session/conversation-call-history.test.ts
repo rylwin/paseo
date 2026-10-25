@@ -4,7 +4,7 @@ import { conversationHistory } from "./conversation-call-history.js";
 import { CodexConversationCall } from "./conversation-call-provider.js";
 import { MemoryCallRpc } from "./test-utils/call-rpc.js";
 
-test("catchup starts recently, preserves intervening messages over bounded pages, and history never moves its cursor", async () => {
+test("catchup continues after quiet startup, preserves bounded pages, and history never moves its cursor", async () => {
   const rows: AgentTimelineRow[] = [];
   function append(text: string, user = false) {
     rows.push({
@@ -58,8 +58,8 @@ test("catchup starts recently, preserves intervening messages over bounded pages
   }
   const first = await tool("paseo_pi_catchup", { limit: 1 });
   expect(first).toMatchObject({
-    messages: [{ seq: 2, text: "recent" }],
-    skippedOlder: true,
+    messages: [],
+    skippedOlder: false,
     deliveredCursor: 2,
   });
   append("next question", true);
@@ -67,6 +67,13 @@ test("catchup starts recently, preserves intervening messages over bounded pages
   append("another question", true);
   append("reply two");
   await tool("paseo_pi_history", { before: 2 });
+  await tool("paseo_pi_history", { after: 0 });
+  expect(
+    await rpc.tool(
+      { threadId: "voice-thread", callId: "cheap-status", tool: "paseo_pi_status", arguments: {} },
+      100,
+    ),
+  ).toMatchObject({ success: true });
   expect(
     (await tool("paseo_pi_catchup", { limit: 2 })).messages.map(
       (message: { seq: number }) => message.seq,
@@ -77,8 +84,10 @@ test("catchup starts recently, preserves intervening messages over bounded pages
   expect(last.messages.map((message: { seq: number }) => message.seq)).toEqual([5, 6]);
   expect((await tool("paseo_pi_catchup")).messages).toEqual([]);
   expect(reads).toEqual([
-    { limit: 1 },
+    { limit: 20 },
+    { after: 2, limit: 1 },
     { before: 2 },
+    { after: 0 },
     { after: 2, limit: 2 },
     { after: 4, limit: 2 },
     { after: 6 },
@@ -121,7 +130,7 @@ test("catchup starts recently, preserves intervening messages over bounded pages
   expect(
     (await tool("paseo_pi_catchup")).messages.map((message: { seq: number }) => message.seq),
   ).toEqual([10]);
-  expect(reads.slice(5)).toEqual([
+  expect(reads.slice(7)).toEqual([
     { after: 6 },
     { after: 6 },
     { after: 6 },
