@@ -1,5 +1,6 @@
 import type { ConversationCallEvent } from "@getpaseo/protocol/messages";
 import type { HistoryInput, HistoryPage } from "./conversation-call-history.js";
+import type { BriefingGenerator } from "./conversation-call-briefing.js";
 import type { SessionDelivery } from "./owned-subscriptions/index.js";
 
 export interface CallAgent {
@@ -15,6 +16,8 @@ export interface CallProvider {
 }
 export interface CallProviderOptions {
   agent: CallAgent;
+  briefing?: BriefingGenerator;
+  scheduleBriefingTimeout?(expire: () => void): () => void;
   emit(event: ConversationCallEvent): void;
   signal: AbortSignal;
 }

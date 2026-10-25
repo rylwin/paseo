@@ -8,6 +8,10 @@ import type { AgentManager } from "../agent/agent-manager.js";
 import type { AgentStorage } from "../agent/agent-storage.js";
 import type { SessionAuthorization } from "../authorization/index.js";
 import type { SessionDelivery } from "./owned-subscriptions/index.js";
+import type { ProviderSnapshotManager } from "../agent/provider-snapshot-manager.js";
+import { resolveStructuredGenerationProviders } from "../agent/structured-generation-providers.js";
+import { PiCliRuntime } from "../agent/providers/pi/cli-runtime.js";
+import { BRIEFING_MODEL, createPiBriefingGenerator } from "./conversation-call-briefing-model.js";
 
 interface SessionCallsOptions {
   binary: string | undefined;
@@ -15,6 +19,7 @@ interface SessionCallsOptions {
   agentManager: AgentManager;
   agentStorage: AgentStorage;
   authorization: SessionAuthorization;
+  providerSnapshotManager: Pick<ProviderSnapshotManager, "listProviders">;
   logger: pino.Logger;
 }
 
@@ -33,7 +38,21 @@ export function createSessionCalls(options: SessionCallsOptions): ConversationCa
           options.authorization.allowsPermission("workspace.write") &&
           options.authorization.allowsPermission("workspace.read"),
       }),
-    createProvider: (call) => createCallProvider(binary, call),
+    createProvider: (call) =>
+      createCallProvider(binary, {
+        ...call,
+        briefing: createPiBriefingGenerator({
+          // Provider frames may contain conversation text: never log this RPC transport.
+          runtime: new PiCliRuntime({ logger: pino({ level: "silent" }) }),
+          logger: options.logger,
+          resolveProviders: () =>
+            resolveStructuredGenerationProviders({
+              cwd: call.agent.cwd,
+              providerSnapshotManager: options.providerSnapshotManager,
+              daemonConfig: { metadataGeneration: { providers: [BRIEFING_MODEL] } },
+            }),
+        }),
+      }),
   });
 }
 

@@ -889,6 +889,7 @@ export class Session {
     this.authorization = new SessionAuthorization(permissions);
     this.conversationCalls = createSessionCalls({
       binary: options.conversationCallCodexBinary,
+      providerSnapshotManager,
       delivery: this.delivery,
       agentManager: options.agentManager,
       agentStorage: options.agentStorage,

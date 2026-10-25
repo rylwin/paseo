@@ -6,6 +6,275 @@ import type { AgentTimelineRow } from "../agent/agent-timeline-store-types.js";
 
 const emptyHistory = async () => conversationHistory([], {});
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: Error) => void;
+  const promise = new Promise<T>((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
+  return { promise, resolve, reject };
+}
+
+function briefingFixture() {
+  const generated = deferred<string>();
+  const entered = deferred<void>();
+  const delivered = deferred<void>();
+  const signaling = deferred<void>();
+  const inputs: Array<{ text: string; signal: AbortSignal }> = [];
+  const rows: AgentTimelineRow[] = Array.from({ length: 30 }, (_, index) => ({
+    seq: index + 1,
+    timestamp: "2026-01-01T00:00:00Z",
+    item: { type: index % 2 ? "assistant_message" : "user_message", text: `turn ${index + 1}` },
+  }));
+  let epoch = "epoch-one";
+  let authorized = true;
+  let expire!: () => void;
+  const authorityCheck = deferred<void>();
+  class BriefingRpc extends MemoryRpc {
+    override async request(method: string, params?: unknown) {
+      const result = await super.request(method, params);
+      if (method === "thread/inject_items") delivered.resolve();
+      if (method === "thread/realtime/start") signaling.resolve();
+      return result;
+    }
+  }
+  const transport = new BriefingRpc();
+  const call = new CodexConversationCall(transport, {
+    agent: {
+      title: "Bound Pi",
+      cwd: "/tmp",
+      async history(input) {
+        if (!authorized) {
+          authorityCheck.resolve();
+          throw new Error("revoked");
+        }
+        return { ...conversationHistory(rows, input), epoch };
+      },
+      async request() {
+        throw new Error("summary must never delegate Pi work");
+      },
+      async status() {
+        return "idle";
+      },
+    },
+    scheduleBriefingTimeout(callback) {
+      expire = callback;
+      return () => {};
+    },
+    briefing: {
+      async generate(text, signal) {
+        inputs.push({ text, signal });
+        entered.resolve();
+        return generated.promise;
+      },
+    },
+    signal: new AbortController().signal,
+    emit() {},
+  });
+  return {
+    rpc: transport,
+    call,
+    generated,
+    entered,
+    delivered,
+    signaling,
+    inputs,
+    rows,
+    authorityCheck,
+    expire() {
+      expire();
+    },
+    revoke() {
+      authorized = false;
+    },
+    changeEpoch() {
+      epoch = "epoch-two";
+    },
+  };
+}
+
+test("connects before the broader briefing resolves, then quietly injects control history only", async () => {
+  const f = briefingFixture();
+  expect(await f.call.start("offer")).toBe("answer");
+  await f.entered.promise;
+  const start = f.rpc.requests.find((r) => r.method === "thread/realtime/start")!.params as {
+    initialItems: Array<{ text: string }>;
+  };
+  expect(start).not.toHaveProperty("prompt");
+  expect(start.initialItems[0]!.text).toContain("pending");
+  expect(start.initialItems[0]!.text).toContain("control");
+  expect(f.rpc.requests.filter((r) => r.method === "thread/inject_items")).toEqual([]);
+  const pending = await f.rpc.tool(
+    {
+      threadId: "voice-thread",
+      callId: "pending-briefing",
+      tool: "paseo_pi_briefing",
+      arguments: {},
+    },
+    90,
+  );
+  expect(pending).toMatchObject({ success: true });
+  expect(JSON.stringify(pending)).toContain("pending");
+  f.generated.resolve("Earlier decision: use the blue deployment, still awaiting review.");
+  await f.delivered.promise;
+  const update = f.rpc.requests.find((r) => r.method === "thread/inject_items")!.params;
+  expect(update).toMatchObject({
+    threadId: "voice-thread",
+    items: [{ type: "message", role: "developer" }],
+  });
+  expect(JSON.stringify(update)).toContain("blue deployment");
+  expect(JSON.stringify(update)).toContain("epoch-one");
+  expect(JSON.stringify(update)).toContain('\\"cutoff\\":30');
+  expect(JSON.stringify(update)).toContain("Recent and newer messages override");
+  expect(f.rpc.requests.map((r) => r.method)).not.toContain("thread/realtime/appendText");
+  expect(f.rpc.requests.map((r) => r.method)).not.toContain("turn/start");
+  f.rows.push({
+    seq: 31,
+    timestamp: "2026-01-01T00:00:01Z",
+    item: { type: "user_message", text: "Use green instead" },
+  });
+  const catchup = await f.rpc.tool(
+    { threadId: "voice-thread", callId: "after-summary", tool: "paseo_pi_catchup", arguments: {} },
+    91,
+  );
+  expect(JSON.stringify(catchup)).toContain("Use green instead");
+  expect(JSON.stringify(catchup)).toContain('\\"deliveredCursor\\":31');
+  await f.call.stop();
+});
+
+test("briefing failures and timeouts become quietly unavailable without ending the call", async () => {
+  for (const failure of ["reject", "timeout"] as const) {
+    const f = briefingFixture();
+    await f.call.start("offer");
+    await f.entered.promise;
+    if (failure === "reject") f.generated.reject(new Error("private provider diagnostic"));
+    else f.expire();
+    await f.delivered.promise;
+    expect(f.rpc.disposed).toBe(0);
+    expect(
+      JSON.stringify(f.rpc.requests.find((r) => r.method === "thread/inject_items")!.params),
+    ).toContain("unavailable");
+    expect(JSON.stringify(f.rpc.requests)).not.toContain("private provider diagnostic");
+    const status = await f.rpc.tool(
+      {
+        threadId: "voice-thread",
+        callId: "briefing-state",
+        tool: "paseo_pi_briefing",
+        arguments: {},
+      },
+      100,
+    );
+    expect(status).toMatchObject({ success: true });
+    expect(JSON.stringify(status)).toContain("unavailable");
+    await f.call.stop();
+  }
+});
+
+test("end revokes only summary delivery and cancels its generation signal", async () => {
+  const f = briefingFixture();
+  await f.call.start("offer");
+  await f.entered.promise;
+  await f.call.stop();
+  expect(f.inputs[0]!.signal.aborted).toBe(true);
+  f.generated.resolve("stale summary");
+  expect(f.rpc.requests.filter((r) => r.method === "thread/inject_items")).toEqual([]);
+});
+
+test("epoch changes discard the generated briefing rather than labeling rewritten history as covered", async () => {
+  const f = briefingFixture();
+  await f.call.start("offer");
+  await f.entered.promise;
+  f.changeEpoch();
+  f.generated.resolve("invalidated blue decision");
+  await f.delivered.promise;
+  const update = JSON.stringify(
+    f.rpc.requests.find((r) => r.method === "thread/inject_items")!.params,
+  );
+  expect(update).toContain("unavailable");
+  expect(update).not.toContain("invalidated blue decision");
+  await f.call.stop();
+});
+
+test("revoked authority prevents summary delivery and read-only retrieval", async () => {
+  const f = briefingFixture();
+  await f.call.start("offer");
+  await f.entered.promise;
+  f.revoke();
+  f.generated.resolve("secret old summary");
+  await f.authorityCheck.promise;
+  expect(f.rpc.requests.filter((r) => r.method === "thread/inject_items")).toEqual([]);
+  const result = await f.rpc.tool(
+    {
+      threadId: "voice-thread",
+      callId: "revoked-summary",
+      tool: "paseo_pi_briefing",
+      arguments: {},
+    },
+    101,
+  );
+  expect(result).toMatchObject({ success: false });
+  expect(JSON.stringify(result)).not.toContain("secret old summary");
+  await f.call.stop();
+});
+
+test("summary input is bounded, marks omitted source, and contains conversation only", async () => {
+  const f = briefingFixture();
+  f.rows.unshift(
+    ...Array.from(
+      { length: 500 },
+      (_, index): AgentTimelineRow => ({
+        seq: index + 1,
+        timestamp: "2026-01-01T00:00:00Z",
+        item: { type: "user_message", text: `Older ${index} ${"x".repeat(300)}` },
+      }),
+    ),
+  );
+  f.rows.forEach((row, index) => {
+    row.seq = index + 1;
+  });
+  await f.call.start("offer");
+  await f.entered.promise;
+  expect(Buffer.byteLength(f.inputs[0]!.text)).toBeLessThan(64000);
+  const snapshot = JSON.parse(f.inputs[0]!.text.slice(f.inputs[0]!.text.indexOf("\n") + 1));
+  expect(snapshot.coverage).toMatchObject({ cutoff: 530, omittedOlder: true, epoch: "epoch-one" });
+  expect(
+    snapshot.messages.every((message: { role: string }) =>
+      ["user", "assistant"].includes(message.role),
+    ),
+  ).toBe(true);
+  f.generated.resolve("Bounded older context");
+  await f.delivered.promise;
+  await f.call.stop();
+});
+
+test("short histories use the recent window with no summary model work", async () => {
+  const f = briefingFixture();
+  f.rows.splice(0, 15);
+  await f.call.start("offer");
+  expect(f.inputs).toEqual([]);
+  const state = await f.rpc.tool(
+    { threadId: "voice-thread", callId: "short-summary", tool: "paseo_pi_briefing", arguments: {} },
+    102,
+  );
+  expect(JSON.stringify(state)).toContain("not_needed");
+  await f.call.stop();
+});
+
+test("summary snapshot and model work can begin while realtime signaling is still pending", async () => {
+  const f = briefingFixture();
+  f.rpc.sendSdp = false;
+  const starting = f.call.start("offer");
+  await f.entered.promise;
+  expect(f.rpc.requests.filter((r) => r.method === "thread/inject_items")).toEqual([]);
+  await f.signaling.promise;
+  f.rpc.notifyHandler("thread/realtime/sdp", { threadId: "voice-thread", sdp: "answer" });
+  expect(await starting).toBe("answer");
+  f.generated.resolve("parallel briefing");
+  await f.delivered.promise;
+  await f.call.stop();
+});
+
 test("only structured tools for the bound target are admitted and a duplicate is never resent", async () => {
   const rpc = new MemoryRpc();
   const sent: string[] = [];
