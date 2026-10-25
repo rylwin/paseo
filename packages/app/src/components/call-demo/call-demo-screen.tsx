@@ -5,6 +5,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "@/components/ui/button";
 import { EditingTextInput, type EditingTextInputHandle } from "@/components/ui/text-input";
 import { CallPanel } from "./call-panel";
+import { LiveCallPanel } from "./live-call-panel";
 import {
   initialCallDemoState,
   reduceCallDemo,
@@ -22,8 +23,24 @@ const scenarios: { connection: DemoConnection; label: string }[] = [
   { connection: "ended", label: "Ended" },
 ];
 
-/** Opt-in development harness; no network, microphone, or real agent actions. */
+/** Both variants remain behind the development-only open-project gate. */
 export function CallDemoScreen() {
+  if (process.env.EXPO_PUBLIC_CALL_LIVE === "1") {
+    return (
+      <View style={styles.root}>
+        <SafeAreaView style={FLEX}>
+          <ScrollView contentContainerStyle={styles.frame} keyboardShouldPersistTaps="handled">
+            <LiveCallPanel />
+          </ScrollView>
+        </SafeAreaView>
+      </View>
+    );
+  }
+  return <SimulatedCallDemoScreen />;
+}
+
+/** No network, microphone, or real agent actions in the scenario variant. */
+function SimulatedCallDemoScreen() {
   const [state, dispatch] = useReducer(reduceCallDemo, initialCallDemoState);
   const [scenariosOpen, setScenariosOpen] = useState(false);
   const [draft, setDraft] = useState("");
