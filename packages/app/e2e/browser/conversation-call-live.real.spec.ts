@@ -79,6 +79,25 @@ for (const width of [1280, 390]) {
       await expect(phone).toBeVisible();
       const idleBox = await phone.boundingBox();
       expect(idleBox).not.toBeNull();
+      for (const control of [
+        phone,
+        page.getByRole("button", { name: "Start dictation", exact: true }),
+        page.getByRole("button", { name: "Enable Voice mode", exact: true }),
+      ]) {
+        await control.hover();
+        const geometry = await control.evaluate((button) => {
+          const box = button.getBoundingClientRect();
+          const style = getComputedStyle(button);
+          return { width: box.width, height: box.height, radius: parseFloat(style.borderRadius) };
+        });
+        expect(geometry.width).toBe(28);
+        expect(geometry.height).toBe(28);
+        expect(geometry.radius).toBeGreaterThanOrEqual(geometry.width / 2);
+        expect(await phone.boundingBox()).toEqual(idleBox);
+        await page.screenshot({
+          path: testInfo.outputPath(`hover-${await control.getAttribute("aria-label")}.png`),
+        });
+      }
       expect(await phone.locator("..").boundingBox()).toEqual(idleBox);
       await expect(page.getByRole("button", { name: /mute microphone/i })).toHaveCount(0);
       await page.mouse.move(0, 0);

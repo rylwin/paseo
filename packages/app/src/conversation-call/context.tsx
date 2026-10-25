@@ -14,6 +14,7 @@ import { Phone, PhoneOutgoing, Mic, MicOff, PhoneOff } from "lucide-react-native
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { ToolbarButton } from "@/components/ui/pane-content-toolbar";
+import { CONTROL_HEIGHTS } from "@/components/ui/control-geometry";
 import { Alert } from "@/components/ui/alert";
 import { isWeb } from "@/constants/platform";
 import { useSessionStore } from "@/stores/session-store";
@@ -187,7 +188,8 @@ export function ConversationCallAction({
         testID="conversation-call-start"
         onPress={toggle}
         disabled={disabled}
-        style={styles.touchTarget}
+        round
+        style={styles.composerAction}
       >
         {icon}
       </ToolbarButton>
@@ -284,5 +286,6 @@ const styles = StyleSheet.create((theme) => ({
   controls: { flexDirection: "row", alignItems: "center", gap: theme.spacing[1] },
   identity: { flex: 1, minWidth: 0, justifyContent: "flex-start" },
   identityText: { flexShrink: 1, fontSize: theme.fontSize.base, color: theme.colors.foreground },
+  composerAction: { width: CONTROL_HEIGHTS.tight, height: CONTROL_HEIGHTS.tight },
   touchTarget: { minWidth: theme.spacing[12], minHeight: theme.spacing[12] },
 }));
