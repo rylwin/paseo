@@ -6,6 +6,7 @@ import { DaemonClient } from "../test-utils/daemon-client.js";
 import { resolveCallAgent } from "./conversation-call-agent.js";
 import { CodexConversationCall } from "./conversation-call-provider.js";
 import { MemoryCallRpc } from "./test-utils/call-rpc.js";
+import { formatAgentMessage, projectAgentMessages } from "../agent/agent-messages/index.js";
 
 test("voice barge-in, control request cancellation and hangup preserve Pi work; a later call reads its completion", async () => {
   let finish!: () => void;
@@ -144,6 +145,31 @@ test("binds only an eligible live Pi under the caller's current workspace author
     });
     const bound = await resolve(pi.id);
     expect(bound.title).toBe("Call target");
+    await host.daemon.agentManager.appendTimelineItem(pi.id, {
+      type: "user_message",
+      text: "First question",
+    });
+    await host.daemon.agentManager.appendTimelineItem(pi.id, {
+      type: "reasoning",
+      text: "private thinking",
+    });
+    await host.daemon.agentManager.appendTimelineItem(pi.id, {
+      type: "assistant_message",
+      text: "First answer",
+    });
+    await host.daemon.agentManager.appendTimelineItem(codex.id, {
+      type: "assistant_message",
+      text: "wrong target",
+    });
+    const page = await bound.history({ limit: 1 }, new AbortController().signal);
+    expect(page.messages).toEqual([
+      { seq: 3, role: "assistant", text: "First answer", textTruncated: false },
+    ]);
+    expect(page).toMatchObject({ hasMore: true, nextCursor: 3, skippedOlder: true });
+    expect(
+      (await bound.history({ before: page.nextCursor!, limit: 1 }, new AbortController().signal))
+        .messages,
+    ).toEqual([{ seq: 1, role: "user", text: "First question", textTruncated: false }]);
     const cancelled = new AbortController();
     const unaccepted = bound.request("Respond with exactly: Never submitted", cancelled.signal);
     cancelled.abort();
@@ -151,15 +177,77 @@ test("binds only an eligible live Pi under the caller's current workspace author
     expect(host.daemon.agentManager.hasInFlightRun(pi.id)).toBe(false);
     expect(
       host.daemon.agentManager.getTimeline(pi.id).filter((item) => item.type === "user_message"),
-    ).toEqual([]);
+    ).toEqual([{ type: "user_message", text: "First question" }]);
     expect(
       await bound.request("Respond with exactly: Actual Pi answer", new AbortController().signal),
     ).toBe("Pi replied: Actual Pi answer");
     expect(await bound.status(new AbortController().signal)).toContain("Actual Pi answer");
+    const signal = new AbortController().signal;
+    await expect(bound.history({ before: 3, after: 0 }, signal)).rejects.toThrow();
+    await expect(bound.history({ limit: 51 }, signal)).rejects.toThrow();
+    const longText = '"\\\n😀'.repeat(4000);
+    for (let index = 0; index < 5; index++) {
+      await host.daemon.agentManager.appendTimelineItem(pi.id, {
+        type: "user_message",
+        text: `Question ${index}`,
+      });
+      await host.daemon.agentManager.appendTimelineItem(pi.id, {
+        type: "assistant_message",
+        text: longText,
+      });
+    }
+    const bounded = await bound.history({ after: 3, limit: 50 }, signal);
+    expect(Buffer.byteLength(JSON.stringify(bounded))).toBeLessThanOrEqual(10000);
+    expect(bounded.hasMore).toBe(true);
+    expect(bounded.messages.find((message) => message.text.startsWith('"\\\n😀'))).toMatchObject({
+      textTruncated: true,
+    });
+    const next = await bound.history({ after: bounded.nextCursor!, limit: 50 }, signal);
+    expect(next.messages[0]!.seq).toBeGreaterThan(bounded.nextCursor!);
+    const userText =
+      "Discuss <design> & retain attachment metadata: report.pdf, application/pdf, 123 bytes";
+    for (const item of projectAgentMessages({
+      type: "user_message",
+      text: formatAgentMessage({ id: "human", source: null, text: userText }),
+    })) {
+      await host.daemon.agentManager.appendTimelineItem(pi.id, item);
+    }
+    for (const item of projectAgentMessages({
+      type: "user_message",
+      text: formatAgentMessage({
+        id: "agent",
+        source: { kind: "agent-message", agentId: codex.id },
+        text: "Unrelated agent secret",
+      }),
+    })) {
+      await host.daemon.agentManager.appendTimelineItem(pi.id, item);
+    }
+    expect((await bound.history({ limit: 1 }, signal)).messages).toEqual([
+      { seq: 16, role: "user", text: userText, textTruncated: false },
+    ]);
+    let cursor = 0;
+    const seen: number[] = [];
+    let more = true;
+    while (more) {
+      const chunk = await bound.history({ after: cursor, limit: 2 }, signal);
+      seen.push(...chunk.messages.map((message) => message.seq));
+      cursor = chunk.nextCursor ?? cursor;
+      more = chunk.hasMore;
+    }
+    const expected = (await host.daemon.agentManager.getTimelineRows(pi.id))
+      .filter((row) => row.item.type === "user_message" || row.item.type === "assistant_message")
+      .map((row) => row.seq);
+    expect(seen).toEqual(expected);
+    const cancelledRead = new AbortController();
+    cancelledRead.abort();
+    await expect(bound.history({}, cancelledRead.signal)).rejects.toThrow();
+    expect(host.daemon.agentManager.hasInFlightRun(pi.id)).toBe(false);
     allowed = false;
+    await expect(bound.history({}, signal)).rejects.toThrow("workspace authority");
     await expect(resolve(pi.id)).rejects.toThrow("workspace authority");
     allowed = true;
     await client.archiveAgent(pi.id);
+    await expect(bound.history({}, signal)).rejects.toThrow("eligible live Pi");
     await expect(resolve(pi.id)).rejects.toThrow("eligible live Pi");
   } finally {
     await client.close();

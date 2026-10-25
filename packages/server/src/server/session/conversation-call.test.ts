@@ -5,6 +5,7 @@ import {
   type CallProvider,
   type CallProviderOptions,
 } from "./conversation-call.js";
+import { conversationHistory } from "./conversation-call-history.js";
 import { SessionDelivery } from "./owned-subscriptions/index.js";
 
 function fixture() {
@@ -28,6 +29,9 @@ function fixture() {
     cwd: "/tmp",
     async request(text) {
       return `Pi replied: ${text}`;
+    },
+    async history() {
+      return conversationHistory([], {});
     },
     async status() {
       return "idle";
@@ -117,6 +121,7 @@ test("revalidates permission and target eligibility before each delegated operat
     "eligible live Pi",
   );
   await expect(f.bound.agent.status(f.bound.signal)).rejects.toThrow("eligible live Pi");
+  await expect(f.bound.agent.history({}, f.bound.signal)).rejects.toThrow("eligible live Pi");
   await f.delivery.close();
 });
 

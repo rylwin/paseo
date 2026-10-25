@@ -1,6 +1,9 @@
 import { expect, test } from "vitest";
 import { CodexConversationCall } from "./conversation-call-provider.js";
 import { MemoryCallRpc as MemoryRpc } from "./test-utils/call-rpc.js";
+import { conversationHistory } from "./conversation-call-history.js";
+
+const emptyHistory = async () => conversationHistory([], {});
 
 test("only structured tools for the bound target are admitted and a duplicate is never resent", async () => {
   const rpc = new MemoryRpc();
@@ -9,6 +12,7 @@ test("only structured tools for the bound target are admitted and a duplicate is
     agent: {
       title: "Pi",
       cwd: "/tmp",
+      history: emptyHistory,
       async request(text) {
         sent.push(text);
         return "Pi answered";
@@ -65,6 +69,38 @@ test("only structured tools for the bound target are admitted and a duplicate is
       4,
     ),
   ).toMatchObject({ success: false });
+  for (const [tool, args] of [
+    ["paseo_pi_history", { agentId: "other" }],
+    ["paseo_pi_history", { before: 2, after: 0 }],
+    ["paseo_pi_history", { before: -1 }],
+    ["paseo_pi_history", { after: 1.5 }],
+    ["paseo_pi_history", { before: Number.MAX_SAFE_INTEGER + 1 }],
+    ["paseo_pi_history", { path: "/etc/passwd" }],
+    ["paseo_pi_history", { limit: 0 }],
+    ["paseo_pi_history", { limit: 51 }],
+    ["paseo_pi_catchup", { after: 0 }],
+    ["paseo_pi_catchup", { limit: "20" }],
+  ]) {
+    expect(
+      await rpc.tool(
+        {
+          threadId: "voice-thread",
+          callId: `invalid-${JSON.stringify(args)}`,
+          tool,
+          arguments: args,
+        },
+        5,
+      ),
+    ).toMatchObject({ success: false });
+  }
+  const historyCall = {
+    threadId: "voice-thread",
+    callId: "history",
+    tool: "paseo_pi_history",
+    arguments: '{"after":0,"limit":20}',
+  };
+  expect(await rpc.tool(historyCall, 6)).toMatchObject({ success: true });
+  expect(await rpc.tool(historyCall, 7)).toMatchObject({ success: false });
   expect(sent).toEqual(["explain"]);
   await call.stop();
 });
@@ -77,6 +113,7 @@ test("cancellation rejects a missing answer and disposes the owned transport", a
     agent: {
       title: "Pi",
       cwd: "/tmp",
+      history: emptyHistory,
       async request() {
         return "answer";
       },
@@ -103,6 +140,7 @@ test("forwards bounded transcripts and terminates on a provider error", async ()
     agent: {
       title: "Pi",
       cwd: "/tmp",
+      history: emptyHistory,
       async request() {
         return "answer";
       },
@@ -143,6 +181,7 @@ test("missing host realtime support fails clearly without exposing provider diag
     agent: {
       title: "Pi",
       cwd: "/tmp",
+      history: emptyHistory,
       async request() {
         return "answer";
       },
@@ -165,6 +204,7 @@ test("starts v3 WebRTC with native delegation acknowledgment and discovers the c
     agent: {
       title: "My Pi",
       cwd: "/tmp/pi",
+      history: emptyHistory,
       async request() {
         return "answer";
       },

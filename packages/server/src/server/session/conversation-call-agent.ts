@@ -3,6 +3,7 @@ import type { AgentManager } from "../agent/agent-manager.js";
 import type { AgentStorage } from "../agent/agent-storage.js";
 import { sendPromptToAgent } from "../agent/agent-prompt.js";
 import type { CallAgent } from "./conversation-call.js";
+import { conversationHistory } from "./conversation-call-history.js";
 
 interface Dependencies {
   agentId: string;
@@ -69,6 +70,18 @@ export async function resolveCallAgent(dependencies: Dependencies): Promise<Call
         .join("");
       if (!text) throw new Error("No fresh Pi answer is available; ask for status");
       return `Pi replied: ${text}`.slice(0, 12000);
+    },
+    async history(input, signal) {
+      signal.throwIfAborted();
+      await resolveCallAgent(dependencies);
+      signal.throwIfAborted();
+      const epoch = agentManager.fetchTimeline(agentId, { limit: 1 }).epoch;
+      const rows = await agentManager.getTimelineRows(agentId);
+      await resolveCallAgent(dependencies);
+      signal.throwIfAborted();
+      if (agentManager.fetchTimeline(agentId, { limit: 1 }).epoch !== epoch)
+        throw new Error("Pi timeline changed during read");
+      return { ...conversationHistory(rows, input), epoch };
     },
     async status(signal) {
       signal.throwIfAborted();

@@ -1,4 +1,5 @@
 import type { ConversationCallEvent } from "@getpaseo/protocol/messages";
+import type { HistoryInput, HistoryPage } from "./conversation-call-history.js";
 import type { SessionDelivery } from "./owned-subscriptions/index.js";
 
 export interface CallAgent {
@@ -6,6 +7,7 @@ export interface CallAgent {
   cwd: string;
   request(instruction: string, signal: AbortSignal): Promise<string>;
   status(signal: AbortSignal): Promise<string>;
+  history(input: HistoryInput, signal: AbortSignal): Promise<HistoryPage>;
 }
 export interface CallProvider {
   start(sdp: string): Promise<string>;
@@ -93,6 +95,12 @@ export class ConversationCalls {
           const current = await resolveAgent(input.agentId);
           signal.throwIfAborted();
           return current.request(instruction, signal);
+        },
+        async history(options, signal) {
+          signal.throwIfAborted();
+          const current = await resolveAgent(input.agentId);
+          signal.throwIfAborted();
+          return current.history(options, signal);
         },
         async status(signal) {
           signal.throwIfAborted();
