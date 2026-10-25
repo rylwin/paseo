@@ -2645,6 +2645,34 @@ export class DaemonClient {
     );
   }
 
+  async startConversationCall(input: { callId: string; agentId: string; sdp: string }) {
+    if (this.lastServerInfoMessage?.features?.conversationCalls !== true) {
+      throw new Error("Update the host and enable conversation calls to use GPT-Live");
+    }
+    const requestId = this.createRequestId();
+    return this.sendCorrelatedRequest({
+      requestId,
+      message: SessionInboundMessageSchema.parse({
+        type: "conversation.call.start.request",
+        requestId,
+        ...input,
+      }),
+      responseType: "conversation.call.start.response",
+      timeout: 95000,
+      options: { skipQueue: true },
+    });
+  }
+
+  async endConversationCall(callId: string) {
+    const requestId = this.createRequestId();
+    return this.sendCorrelatedRequest({
+      requestId,
+      message: { type: "conversation.call.end.request", requestId, callId },
+      responseType: "conversation.call.end.response",
+      options: { skipQueue: true },
+    });
+  }
+
   fetchAgents(
     options: FetchAgentsOptions & { subscribe: {} },
   ): Promise<FetchAgentsPayload & { subscription: OwnedSubscription<FetchAgentsPayload> }>;

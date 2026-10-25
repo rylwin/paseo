@@ -171,6 +171,7 @@ interface WebSocketConnectionIdentity {
 }
 
 interface WebSocketServerConfig {
+  conversationCallCodexBinary?: string;
   allowedOrigins?: Set<string>;
   hostnames?: HostnamesConfig;
   getAllowedOrigins?: () => Set<string>;
@@ -651,7 +652,7 @@ export class VoiceAssistantWebSocketServer {
     paseoHome: string,
     daemonConfigStore: DaemonConfigStore,
     mcpBaseUrl: string | null,
-    wsConfig: WebSocketServerConfig,
+    private readonly wsConfig: WebSocketServerConfig,
     workspaceAutoName: WorkspaceAutoName,
     private readonly workspaceRuntimeStore: WorkspaceRuntimeStore,
     auth?: DaemonAuthConfig,
@@ -1563,6 +1564,7 @@ export class VoiceAssistantWebSocketServer {
 
   private createSocketSession(options: SocketSessionOptions): Session {
     return new Session({
+      conversationCallCodexBinary: this.wsConfig.conversationCallCodexBinary,
       connectedHosts: this.connectedHosts,
       getConnectedHostBufferedAmount: () => {
         let total = 0;
@@ -1944,6 +1946,7 @@ export class VoiceAssistantWebSocketServer {
       desktopManaged: this.daemonRuntimeConfig?.desktopManaged === true,
       ...(this.serverCapabilities ? { capabilities: this.serverCapabilities } : {}),
       features: {
+        conversationCalls: this.wsConfig.conversationCallCodexBinary !== undefined,
         connectedHosts: true,
         hostMultiplexing: true,
         // COMPAT(relayProtectedSecurity): added in v0.13.0, remove gate after 2027-04-21.

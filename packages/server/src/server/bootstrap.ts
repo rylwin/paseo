@@ -397,6 +397,7 @@ export type DaemonLifecycleIntent =
     };
 
 export interface PaseoDaemonConfig {
+  conversationCallCodexBinary?: string;
   listen: string;
   paseoHome: string;
   daemonVersion?: string;
@@ -1763,6 +1764,7 @@ export async function createPaseoDaemon(
                 daemonStatusRpc: dependencies.serverFeatureOverrides?.daemonStatusRpc,
                 relayConfig: dependencies.serverFeatureOverrides?.relayConfig,
                 startPaused: true,
+                conversationCallCodexBinary: config.conversationCallCodexBinary,
               },
               workspaceAutoName,
               workspaceRuntimeStore,

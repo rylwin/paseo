@@ -18,6 +18,8 @@ import type { CreationSnapshot, AgentCreateRequest } from "@getpaseo/protocol/me
 import type { MessageReceipts } from "./message-receipts/index.js";
 import equal from "fast-deep-equal";
 import { WorkspaceSetupObservation } from "./workspace-setup-observation.js";
+import type { ConversationCalls } from "./session/conversation-call.js";
+import { createSessionCalls } from "./session/conversation-call-process.js";
 import { SessionDelivery, type OwnedSubscription } from "./session/owned-subscriptions/index.js";
 import { v4 as uuidv4 } from "uuid";
 import { lstat, mkdir, mkdtemp, rename, rm, stat } from "node:fs/promises";
@@ -438,6 +440,7 @@ const nodeSessionFileSystem: SessionFileSystem = {
 type AgentMcpTransportFactory = () => Promise<unknown>;
 
 export interface SessionOptions {
+  conversationCallCodexBinary?: string;
   connectedHosts?: ConnectedHosts;
   sourceId?: string;
   routed?: boolean;
@@ -807,6 +810,7 @@ export class Session {
   private readonly workspaceGitObserver: WorkspaceGitObserverService;
   private readonly workspaceDirectory: WorkspaceDirectory;
   private readonly voiceSessions: VoiceSessions;
+  private readonly conversationCalls: ConversationCalls | null;
   private readonly checkoutSession: CheckoutSession;
   private readonly scheduleSession: ScheduleSession;
   private readonly providerCatalogSession: ProviderCatalogSession;
@@ -883,6 +887,14 @@ export class Session {
     this.browserToolsBroker = options.browserToolsBroker;
     this.clientId = clientId;
     this.authorization = new SessionAuthorization(permissions);
+    this.conversationCalls = createSessionCalls({
+      binary: options.conversationCallCodexBinary,
+      delivery: this.delivery,
+      agentManager: options.agentManager,
+      agentStorage: options.agentStorage,
+      logger: options.logger,
+      authorization: this.authorization,
+    });
 
     this.appVersion = appVersion ?? null;
     this.clientCapabilities = parseClientCapabilities(clientCapabilities);
@@ -2249,9 +2261,38 @@ export class Session {
     }
   }
 
+  private async handleConversationCall(
+    msg: Extract<
+      SessionInboundMessage,
+      { type: "conversation.call.start.request" | "conversation.call.end.request" }
+    >,
+  ): Promise<void> {
+    if (!this.conversationCalls) throw new Error("Conversation calls are not enabled on this host");
+    if (msg.type === "conversation.call.start.request") {
+      const sdp = await this.conversationCalls.start(msg);
+      this.emit({
+        type: "conversation.call.start.response",
+        payload: { requestId: msg.requestId, callId: msg.callId, agentId: msg.agentId, sdp },
+      });
+    } else {
+      await this.conversationCalls.end(msg.callId);
+      this.emit({
+        type: "conversation.call.end.response",
+        payload: { requestId: msg.requestId, callId: msg.callId },
+      });
+    }
+  }
+
   public setPermissions(permissions: readonly DaemonPermission[]): void {
     this.authorization.replacePermissions(permissions);
     this.connectedHostSession?.revoke();
+    const canCall =
+      this.authorization.allowsPermission("workspace.write") &&
+      this.authorization.allowsPermission("workspace.read");
+    if (!canCall)
+      void this.conversationCalls
+        ?.close()
+        .catch((err) => this.sessionLogger.error({ err }, "Failed to close revoked call"));
     if (!this.authorization.allowsPermission("workspace.write")) {
       void this.delivery
         .releaseFamily("browser-host")
@@ -2695,6 +2736,9 @@ export class Session {
 
   private dispatchVoiceAndControlMessage(msg: SessionInboundMessage): Promise<void> | undefined {
     switch (msg.type) {
+      case "conversation.call.start.request":
+      case "conversation.call.end.request":
+        return this.handleConversationCall(msg);
       case "voice_audio_chunk":
       case "abort_request":
       case "audio_played":

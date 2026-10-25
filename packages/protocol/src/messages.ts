@@ -3231,7 +3231,53 @@ export const SubscriptionReleaseResponseSchema = z.object({
   payload: z.object({ requestId: z.string(), subscriptionId: z.string() }),
 });
 
+export const ConversationCallEventSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("transcript"),
+    role: z.enum(["user", "assistant"]),
+    text: z.string().max(2000),
+  }),
+  z.object({
+    kind: z.literal("delegation"),
+    status: z.enum(["working", "answered", "failed"]),
+    text: z.string().max(12000),
+  }),
+  z.object({ kind: z.literal("error"), message: z.string().max(240) }),
+]);
+export type ConversationCallEvent = z.infer<typeof ConversationCallEventSchema>;
+export const ConversationCallEventMessageSchema = z.object({
+  type: z.literal("conversation.call.event"),
+  payload: z.object({ callId: z.string(), event: ConversationCallEventSchema }),
+});
+export const ConversationCallEndRequestSchema = z.object({
+  type: z.literal("conversation.call.end.request"),
+  requestId: z.string().min(1).max(128),
+  callId: z.string().min(1).max(128),
+});
+export const ConversationCallEndResponseSchema = z.object({
+  type: z.literal("conversation.call.end.response"),
+  payload: z.object({ requestId: z.string(), callId: z.string() }),
+});
+export const ConversationCallStartRequestSchema = z.object({
+  type: z.literal("conversation.call.start.request"),
+  requestId: z.string().min(1).max(128),
+  callId: z.string().min(1).max(128),
+  agentId: z.string().min(1).max(128),
+  sdp: z.string().min(1).max(65536),
+});
+export const ConversationCallStartResponseSchema = z.object({
+  type: z.literal("conversation.call.start.response"),
+  payload: z.object({
+    requestId: z.string(),
+    callId: z.string(),
+    agentId: z.string(),
+    sdp: z.string().min(1).max(65536),
+  }),
+});
+
 export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
+  ConversationCallStartRequestSchema,
+  ConversationCallEndRequestSchema,
   HostsListRequestSchema,
   HostsAddRequestSchema,
   HostsUpdateRequestSchema,
@@ -3633,6 +3679,7 @@ export const ServerInfoStatusPayloadSchema = z
         internalWorkspaces: z.boolean().optional(),
         backgroundWorkspaces: z.boolean().optional(),
         providersSnapshot: z.boolean().optional(),
+        conversationCalls: z.boolean().optional(),
         connectedHosts: z.boolean().optional(),
         hostMultiplexing: z.boolean().optional(),
         usageSources: z.boolean().optional(),
@@ -6925,6 +6972,9 @@ export const AgentSkillsImportLegacySelectionResponseSchema = z.object({
 });
 
 export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
+  ConversationCallStartResponseSchema,
+  ConversationCallEndResponseSchema,
+  ConversationCallEventMessageSchema,
   HostsListResponseSchema,
   HostsChangedSchema,
   HostsAddResponseSchema,

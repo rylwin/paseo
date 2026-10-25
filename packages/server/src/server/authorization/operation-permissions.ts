@@ -6,6 +6,8 @@ type OutboundOperation = SessionOutboundMessage["type"];
 export type PermissionRequirement = DaemonPermission | readonly DaemonPermission[] | null;
 
 const INBOUND_PERMISSION = {
+  "conversation.call.start.request": "workspace.write",
+  "conversation.call.end.request": "workspace.write",
   "hosts.list.request": "daemon.read",
   "hosts.add.request": "tunnel.manage",
   "hosts.update.request": "tunnel.manage",
@@ -224,6 +226,9 @@ const INBOUND_PERMISSION = {
 } as const satisfies Record<InboundOperation, PermissionRequirement>;
 
 const OUTBOUND_PERMISSION = {
+  "conversation.call.start.response": "workspace.write",
+  "conversation.call.end.response": "workspace.write",
+  "conversation.call.event": "workspace.write",
   "hosts.list.response": "daemon.read",
   "hosts.changed": "daemon.read",
   "hosts.add.response": "tunnel.manage",

@@ -35,6 +35,12 @@ function outboundMessage(type: SessionOutboundMessage["type"]): SessionOutboundM
 }
 
 describe("SessionAuthorization", () => {
+  test("conversation calls require workspace write, not read-only or Hub authority", () => {
+    const start = inboundMessage("conversation.call.start.request");
+    expect(new SessionAuthorization(["workspace.read"]).allowsInbound(start)).toBe(false);
+    expect(new SessionAuthorization(["hub.execute"]).allowsInbound(start)).toBe(false);
+    expect(new SessionAuthorization(["workspace.write"]).allowsInbound(start)).toBe(true);
+  });
   test("owner authority covers every session operation", () => {
     const authorization = new SessionAuthorization(OWNER_PERMISSIONS);
 

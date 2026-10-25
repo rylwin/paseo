@@ -1,5 +1,5 @@
 import { configurationEnvironment } from "./config-environment.js";
-import { existsSync } from "node:fs";
+import { accessSync, constants, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolvePaseoNodeEnv } from "./paseo-env.js";
@@ -25,6 +25,17 @@ import { resolveSpeechConfig } from "./speech/speech-config-resolver.js";
 import type { RequestedSpeechProviders } from "./speech/speech-types.js";
 import { mergeHostnames, parseHostnamesEnv, type HostnamesConfig } from "./hostnames.js";
 import { resolveGitProcessPolicy } from "../utils/git-process-scheduler.js";
+
+function resolveConversationCallBinary(binary: string | undefined): string | undefined {
+  if (binary === undefined) return undefined;
+  try {
+    if (!path.isAbsolute(binary)) throw new Error("Absolute path required");
+    accessSync(binary, constants.X_OK);
+  } catch {
+    throw new Error("Conversation calls require an absolute executable Codex binary path");
+  }
+  return binary;
+}
 
 export {
   loadPersistedConfig,
@@ -659,6 +670,9 @@ export function resolveConfigFromPersisted(
     voiceLlmProvider: voiceLlm.provider,
     voiceLlmProviderExplicit: voiceLlm.providerExplicit,
     voiceLlmModel: voiceLlm.model,
+    conversationCallCodexBinary: resolveConversationCallBinary(
+      env.PASEO_CONVERSATION_CALLS_CODEX_BINARY,
+    ),
     agentProviderSettings: extractAgentProviderSettings(providerOverrides),
     providerCatalogRefreshTimeoutMs: persisted.agents?.catalogRefreshTimeoutMs,
     metadataGeneration: persisted.agents?.metadataGeneration,

@@ -16,6 +16,7 @@ import type { PushNotificationSender } from "../push/index.js";
 import type { AgentProfile } from "@getpaseo/protocol/messages";
 
 interface TestPaseoDaemonOptions {
+  conversationCallCodexBinary?: string;
   daemonVersion?: string;
   desktopManaged?: boolean;
   downloadTokenTtlMs?: number;
@@ -185,6 +186,7 @@ async function prepareTestDaemonConfig(
   const listenPort = options.listenPort ?? 0;
   const config: PaseoDaemonConfig = {
     listen: `${listenHost}:${listenPort}`,
+    conversationCallCodexBinary: options.conversationCallCodexBinary,
     paseoHome,
     daemonVersion: options.daemonVersion,
     desktopManaged: options.desktopManaged,
