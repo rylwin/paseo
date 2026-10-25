@@ -76,6 +76,79 @@ PASEO_DEV_SEED_HOME=/path/to/home npm run dev # seed from a different source hom
 PASEO_DEV_RESET_HOME=1 npm run dev            # clear and reseed the derived worktree home
 ```
 
+### Conversation calls (opt-in, browser)
+
+Conversation calls use the authenticated daemon socket, separate from the older
+voice mode and the development-only preview below. Set
+`PASEO_CONVERSATION_CALLS_CODEX_BINARY` to an absolute executable Codex path on
+the daemon host. The installed Codex must support app-server realtime v3 and the
+host login must have GPT-Live access. Missing support fails at call startup; no
+provider credentials are sent to the browser.
+
+Use a separate home and unused ports for development. From this checkout, after
+`npm run build:server`, run these in separate terminals:
+
+```bash
+PASEO_HOME=/tmp/paseo-conversation-home PASEO_LISTEN=127.0.0.1:8790 \
+  PASEO_RELAY_ENABLED=false \
+  PASEO_CORS_ORIGINS=http://localhost:8791,http://127.0.0.1:8791 \
+  PASEO_CONVERSATION_CALLS_CODEX_BINARY="$(command -v codex)" \
+  node packages/server/dist/scripts/supervisor-entrypoint.js
+
+cd packages/app
+EXPO_PUBLIC_LOCAL_DAEMON=127.0.0.1:8790 EXPO_UNSTABLE_HEADLESS=1 \
+  npx expo start --web --port 8791 --max-workers 2
+```
+
+Leave `EXPO_PUBLIC_CALL_UI_DEMO` and `EXPO_PUBLIC_CALL_LIVE` unset. The browser
+origin must match the daemon's CORS allowlist; add the exact HTTPS origin when
+using a phone proxy. Let the local host finish connecting before opening an
+agent deep link in a fresh browser. Open a normal, newly created Pi conversation
+and use the phone button in its composer. The call host stays above chat while
+navigating; minimizing it keeps the target and controls visible. A call captures
+its host and agent at the start gesture and never follows focus. An unsupported
+host shows an update/enable instruction before asking for microphone access.
+Native retains chat, dictation, and the older voice mode without a new call
+action.
+
+Calls require current `workspace.write` and `workspace.read` authority and bind
+only a live, unarchived, non-internal, user-controlled Pi agent. The daemon
+rechecks authority and target eligibility for tool operations. Model tools
+cannot select another target. A physical socket owns one call, with a ten-minute
+limit; hangup, permission revocation, or socket loss releases its owned
+app-server. Browser microphone/audio go directly to GPT-Live over WebRTC.
+Signaling and bounded delegation/status events use the authenticated socket.
+Calling sends spoken instructions and the bound Pi's returned text to the
+Codex/GPT-Live provider.
+
+Voice interruption is not Pi cancellation. Transcript and control-request
+cancellation notifications never dispatch agent operations. Only an explicit new
+delegated instruction can steer Pi; status is read-only. Once submitted, Pi work
+lives independently of the call. Hangup aborts observation, not the provider
+turn. A timeout or permission wait is not success and must not trigger an
+automatic resend. Reconnect and inspect the agent or ask for status.
+
+Focused browser verification uses only harmless Pi agents created by its
+isolated daemon worker. Prepare synthetic audio outside the checkout, then run
+the two real-provider specs (never the whole suite):
+
+```bash
+ffmpeg -hide_banner -loglevel error -f lavfi \
+  -i 'flite=text=Please ask Pi to tell me its current working directory and explain what a TypeScript discriminated union is in two short sentences. Do not change any files.:voice=slt' \
+  -af 'adelay=6000,apad=pad_dur=180' -ar 48000 -ac 1 -y \
+  /tmp/paseo-conversation-call.wav
+CALL_TEST_BROWSER_CHANNEL=chrome npx playwright test \
+  --config packages/app/playwright.config.ts --project=real-provider \
+  conversation-calls.real.spec.ts conversation-call-live.real.spec.ts --workers=1
+```
+
+`CALL_CODEX_BINARY` and `CALL_AUDIO_FIXTURE` override the test binary and WAV
+path. The live test records bounded event/audio timing evidence in
+`/tmp/paseo-conversation-evidence/real-call.json`. It verifies audible output
+before delegation, an actual fresh Pi answer, navigation persistence, and media
+cleanup. Phone autoplay recovery, hardware barge-in timing, and background
+mobile calls still need manual verification.
+
 ### Browser call trial (development only)
 
 The call prototype uses a separate localhost bridge, not the daemon voice

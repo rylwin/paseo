@@ -27,6 +27,7 @@ import {
   useImperativeHandle,
   memo,
   type ReactElement,
+  type ReactNode,
 } from "react";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
@@ -913,6 +914,7 @@ function GithubPickerOption({
 }
 
 interface ComposerProps {
+  conversationCallAction?: ReactNode;
   agentId: string;
   serverId: string;
   workspaceId?: string | null;
@@ -1128,6 +1130,7 @@ interface ComposerVoiceModeButtonProps {
 }
 
 interface ComposerRightControlsSlotProps extends ComposerVoiceModeButtonProps {
+  conversationCallAction?: ReactNode;
   isVoiceModeForAgent: boolean;
   hasAgent: boolean;
   isAgentRunning: boolean;
@@ -1137,6 +1140,7 @@ interface ComposerRightControlsSlotProps extends ComposerVoiceModeButtonProps {
 }
 
 function ComposerRightControlsSlot({
+  conversationCallAction,
   isVoiceModeForAgent,
   hasAgent,
   isAgentRunning,
@@ -1148,10 +1152,11 @@ function ComposerRightControlsSlot({
   const hideVoiceForCompactInput = isCompact && hasSendableContent;
   const showVoiceModeButton =
     showVoice && !isVoiceModeForAgent && hasAgent && !isAgentRunning && !hideVoiceForCompactInput;
-  if (!showVoiceModeButton) return null;
+  if (!showVoiceModeButton && !conversationCallAction) return null;
   return (
     <View style={styles.rightControls}>
-      <ComposerVoiceModeButton {...voiceProps} />
+      {conversationCallAction}
+      {showVoiceModeButton ? <ComposerVoiceModeButton {...voiceProps} /> : null}
     </View>
   );
 }
@@ -1224,6 +1229,7 @@ const ComposerContent = memo(ComposerContentImpl);
 
 // oxlint-disable-next-line complexity
 function ComposerContentImpl({
+  conversationCallAction,
   agentId,
   serverId,
   workspaceId,
@@ -2026,6 +2032,7 @@ function ComposerContentImpl({
   const rightContent = useMemo(
     () => (
       <ComposerRightControlsSlot
+        conversationCallAction={conversationCallAction}
         isVoiceModeForAgent={isVoiceModeForAgent}
         hasAgent={hasAgent}
         isAgentRunning={isAgentRunning}
@@ -2042,6 +2049,7 @@ function ComposerContentImpl({
       />
     ),
     [
+      conversationCallAction,
       buttonIconSize,
       handleToggleRealtimeVoice,
       hasAgent,
