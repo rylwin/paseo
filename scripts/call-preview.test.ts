@@ -1,6 +1,51 @@
 import { describe, expect, it } from "vitest";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { gunzipSync } from "node:zlib";
+import { loadPreviewAsset } from "./call-preview-static.mjs";
 import { BoundPiSession, TRIAL_AGENT } from "./call-preview-pi.mjs";
 import { admitUpgrade, validateTool, authenticate, authenticateStart } from "./call-preview.mjs";
+
+describe("built preview assets", () => {
+  it("rejects encoded traversal rather than reading outside the build", async () => {
+    await expect(loadPreviewAsset(tmpdir(), "/%2e%2e%2fsecret.txt", false)).rejects.toThrow(
+      "Invalid preview asset path",
+    );
+  });
+  it.each([
+    ["js", "text/javascript; charset=utf-8"],
+    ["css", "text/css; charset=utf-8"],
+    ["svg", "image/svg+xml"],
+    ["png", "image/png"],
+    ["woff2", "font/woff2"],
+    ["ttf", "font/ttf"],
+    ["json", "application/json"],
+  ])("serves %s with its correct MIME type", async (extension, type) => {
+    const root = await mkdtemp(path.join(tmpdir(), "paseo-static-test-"));
+    try {
+      await writeFile(path.join(root, `app.${extension}`), "console.log('preview');");
+      const asset = await loadPreviewAsset(root, `/app.${extension}?version=1`, false);
+      expect(asset.type).toBe(type);
+      expect(asset.encoding).toBe(null);
+      expect(asset.body.toString()).toBe("console.log('preview');");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+  it("serves the built SPA route compressed without requiring Metro", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "paseo-static-test-"));
+    try {
+      await writeFile(path.join(root, "index.html"), "<html>Stable call preview</html>");
+      const asset = await loadPreviewAsset(root, "/open-project", true);
+      expect(asset.type).toBe("text/html; charset=utf-8");
+      expect(asset.encoding).toBe("gzip");
+      expect(gunzipSync(asset.body).toString()).toBe("<html>Stable call preview</html>");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("scoped token and timeline", () => {
   it("rejects malformed start envelopes without crashing the preview", () => {

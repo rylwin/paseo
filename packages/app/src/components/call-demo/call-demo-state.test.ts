@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { initialCallDemoState, reduceCallDemo, presentCallDemo } from "./call-demo-state";
+import {
+  initialCallDemoState,
+  reduceCallDemo,
+  presentCallDemo,
+  isCallPreviewEnabled,
+} from "./call-demo-state";
+
+describe("call preview opt-in", () => {
+  it("allows the explicitly opted-in static live preview without Metro development mode", () => {
+    expect(isCallPreviewEnabled(false, "1", "1")).toBe(true);
+    expect(isCallPreviewEnabled(false, "1", undefined)).toBe(false);
+    expect(isCallPreviewEnabled(false, undefined, "1")).toBe(false);
+    expect(isCallPreviewEnabled(true, "1", undefined)).toBe(true);
+  });
+});
 
 describe("simulated call", () => {
   it("minimizes and expands without losing mute or connection state", () => {

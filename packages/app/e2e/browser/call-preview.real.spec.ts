@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, devices } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
@@ -15,6 +15,61 @@ test.use({
 test.setTimeout(120000);
 const preview = process.env.CALL_PREVIEW_URL ?? "http://localhost:8788";
 const tokenPath = path.resolve(__dirname, "../../../..", ".dev/call-preview-token");
+
+test("static preview stays mounted on desktop and mobile for 35 seconds", async ({ browser }) => {
+  const profiles = [null, devices["iPhone 13"], devices["Pixel 7"]];
+  const contexts = await Promise.all(
+    profiles.map((device) =>
+      browser.newContext(
+        device
+          ? {
+              userAgent: device.userAgent,
+              viewport: device.viewport,
+              deviceScaleFactor: device.deviceScaleFactor,
+              isMobile: true,
+              hasTouch: true,
+              permissions: [],
+            }
+          : { permissions: [] },
+      ),
+    ),
+  );
+  try {
+    const pages = await Promise.all(contexts.map((context) => context.newPage()));
+    const documents = pages.map(() => 0);
+    const devSockets: string[] = [];
+    await Promise.all(
+      pages.map(async (page, index) => {
+        page.on("request", (request) => {
+          if (request.resourceType() === "document") documents[index]++;
+        });
+        page.on("websocket", (socket) => {
+          const pathname = new URL(socket.url()).pathname;
+          if (pathname === "/hot" || pathname === "/message") devSockets.push(pathname);
+        });
+        const response = await page.goto(`${preview}/open-project?preview=stable-static-2`);
+        expect(response?.headers()["x-paseo-call-preview"]).toBe("static");
+        await expect(page.getByText("GPT-Live call", { exact: true })).toBeVisible({
+          timeout: 30000,
+        });
+      }),
+    );
+    await pages[0].waitForTimeout(35000);
+    expect(documents).toEqual([1, 1, 1]);
+    expect(devSockets).toEqual([]);
+    for (const page of pages) {
+      await expect(page.getByText("GPT-Live call", { exact: true })).toBeVisible();
+      await page
+        .getByRole("textbox", { name: "Trial access token" })
+        .fill((await readFile(tokenPath, "utf8")).trim());
+      await page.getByRole("button", { name: "Start call", exact: true }).click();
+      await expect(page.getByRole("alert")).toContainText("Microphone permission denied");
+      await expect(page.getByRole("button", { name: "Start call", exact: true })).toBeEnabled();
+    }
+  } finally {
+    await Promise.all(contexts.map((context) => context.close()));
+  }
+});
 
 test("denied microphone permission stays visible and permits retry", async ({ browser }) => {
   const context = await browser.newContext({ permissions: [] });

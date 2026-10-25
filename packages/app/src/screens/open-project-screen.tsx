@@ -22,11 +22,18 @@ import { useLocalDaemonServerId } from "@/hooks/use-is-local-daemon";
 import { PairDeviceModal } from "@/desktop/components/pair-device-modal";
 import { buildSettingsHostSectionRoute } from "@/utils/host-routes";
 import { CallDemoScreen } from "@/components/call-demo/call-demo-screen";
+import { isCallPreviewEnabled } from "@/components/call-demo/call-demo-state";
 
 const WINDOW_CONTENT_DATASET = { "window-content": "" };
 
 export function OpenProjectScreen() {
-  if (__DEV__ && process.env.EXPO_PUBLIC_CALL_UI_DEMO === "1") {
+  if (
+    isCallPreviewEnabled(
+      __DEV__,
+      process.env.EXPO_PUBLIC_CALL_UI_DEMO,
+      process.env.EXPO_PUBLIC_CALL_LIVE,
+    )
+  ) {
     return <CallDemoScreen />;
   }
   return <OpenProjectHome />;

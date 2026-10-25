@@ -1,6 +1,7 @@
 import http from "node:http";
 import { randomBytes } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile, readFile, stat } from "node:fs/promises";
+import { loadPreviewAsset } from "./call-preview-static.mjs";
 import { WebSocketServer } from "ws";
 import { admitUpgrade, authenticateStart } from "./call-preview.mjs";
 import { TrialCall, TRIAL_AGENT, TRIAL_TITLE, TRIAL_CWD } from "./call-preview-runtime.mjs";
@@ -10,11 +11,21 @@ const metroPort = Number(process.env.CALL_METRO_PORT ?? 8087);
 const origin = process.env.CALL_PREVIEW_ORIGIN ?? "https://titanium.tail75866.ts.net:8443";
 const origins = [origin, `http://localhost:${port}`, `http://127.0.0.1:${port}`];
 const hosts = new Set(origins.map((entry) => new URL(entry).host));
-const token = randomBytes(32).toString("hex");
 const tokenPath = new URL("../.dev/call-preview-token", import.meta.url);
+const reuseToken = process.env.CALL_PREVIEW_REUSE_TOKEN === "1";
+const token = reuseToken
+  ? (await readFile(tokenPath, "utf8")).trim()
+  : randomBytes(32).toString("hex");
+const issuedAt = reuseToken ? (await stat(tokenPath)).mtimeMs : Date.now();
+const expires = issuedAt + 2 * 60 * 60 * 1000;
+if (!authenticateStart({ type: "start", token }, token) || expires <= Date.now())
+  throw new Error("Existing preview token is invalid or expired; restart without token reuse.");
 await mkdir(new URL("../.dev", import.meta.url), { recursive: true });
-await writeFile(tokenPath, token, { mode: 0o600 });
-const expires = Date.now() + 2 * 60 * 60 * 1000;
+if (!reuseToken) await writeFile(tokenPath, token, { mode: 0o600 });
+const staticRoot =
+  process.env.CALL_PREVIEW_STATIC_DIR ??
+  new URL("../.dev/call-preview-web", import.meta.url).pathname;
+const useMetro = process.env.CALL_PREVIEW_USE_METRO === "1";
 const sockets = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
 let active = null;
 const server = http.createServer((req, res) => {
@@ -34,7 +45,24 @@ const server = http.createServer((req, res) => {
     res.writeHead(404).end();
     return;
   }
-  // Static development UI only. Never forward daemon or app-server requests.
+  if (!useMetro) {
+    res.setHeader("X-Paseo-Call-Preview", "static");
+    void loadPreviewAsset(
+      staticRoot,
+      req.url,
+      /\bgzip\b/.test(req.headers["accept-encoding"] ?? ""),
+    )
+      .then((asset) => {
+        res.setHeader("Content-Type", asset.type);
+        if (asset.encoding) res.setHeader("Content-Encoding", asset.encoding);
+        return res.end(asset.body);
+      })
+      .catch(() => {
+        res.writeHead(404).end("Built call preview asset unavailable");
+      });
+    return;
+  }
+  // Optional desktop development only. Never forward daemon or app-server requests.
   const upstream = http.get(
     {
       hostname: "127.0.0.1",
@@ -139,9 +167,13 @@ sockets.on("connection", (ws) => {
   });
 });
 server.listen(port, "127.0.0.1", () => {
-  console.log(`Call preview on 127.0.0.1:${port}; Metro localhost:${metroPort}`);
+  console.log(
+    `Call preview on 127.0.0.1:${port}; ${useMetro ? `Metro localhost:${metroPort}` : `static build ${staticRoot}`}`,
+  );
   console.log(`Allowed phone origin: ${origin}`);
-  console.log(`Scoped token file (not logged): ${tokenPath.pathname}; expires in 2 hours`);
+  console.log(
+    `Scoped token file (not logged): ${tokenPath.pathname}; expires ${new Date(expires).toISOString()}`,
+  );
 });
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, () => {

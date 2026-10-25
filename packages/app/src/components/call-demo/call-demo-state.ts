@@ -1,3 +1,11 @@
+export function isCallPreviewEnabled(
+  development: boolean,
+  demo: string | undefined,
+  live: string | undefined,
+) {
+  return demo === "1" && (development || live === "1");
+}
+
 export type DemoConnection = "connecting" | "connected" | "reconnecting" | "failed" | "ended";
 
 export interface CallDemoState {

@@ -88,13 +88,14 @@ changing the fixed ID. Unset inherited `PASEO_AGENT_ID`, `PASEO_AGENT_CWD`,
 `PI_SESSION_FILE`, and `PI_SESSION_ID` when creating it; verify cwd and absence
 of a parent before use.
 
-Start Metro from this checkout:
+Build the static phone preview from this checkout (both opt-in flags are
+required):
 
 ```bash
 cd packages/app
 EXPO_PUBLIC_CALL_UI_DEMO=1 EXPO_PUBLIC_CALL_LIVE=1 \
   EXPO_PUBLIC_LOCAL_DAEMON=127.0.0.1:1 EXPO_UNSTABLE_HEADLESS=1 \
-  npx expo start --web --localhost --port 8087
+  npx expo export --platform web --output-dir ../../.dev/call-preview-web --max-workers 2
 ```
 
 In another terminal, from the checkout root:
@@ -107,13 +108,18 @@ Open `http://localhost:8788/open-project` locally. For the phone trial, the
 operator routes tailnet-only HTTPS `https://titanium.tail75866.ts.net:8443` to
 `127.0.0.1:8788`. Do not modify the existing 443/6767 mappings or enable Funnel.
 `CALL_PREVIEW_ORIGIN`, `CALL_PREVIEW_PORT`, and `CALL_METRO_PORT` override those
-preview defaults. No production daemon restart or config change is needed.
+preview defaults. Static files are served directly with compression; no Metro
+process is needed for the phone trial. `CALL_PREVIEW_USE_METRO=1` is available
+only for local development, not this phone preview. No production daemon restart
+or config change is needed.
 
 Read `.dev/call-preview-token` privately. Paste it into the token field, or use
 `/open-project#callToken=<token>` in a private link. The fragment is removed on
 mount; the token is kept only in page memory, not browser storage. Restarting
-the bridge rotates the token. New calls stop being admitted after two hours. Do
-not put this token in logs, query parameters, committed files, or public links.
+the bridge rotates the token by default. `CALL_PREVIEW_REUSE_TOKEN=1` preserves
+an existing valid token and its original expiry during a preview-only restart.
+New calls stop being admitted after two hours. Do not put this token in logs,
+query parameters, committed files, or public links.
 
 Tap **Start call**, allow microphone access, then ask a coding question or task.
 For a read-only first check: "Ask Pi for its working directory and explain
