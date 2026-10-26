@@ -119,8 +119,13 @@ class PaseoCallModule : Module() {
             val tracks = args[1] as WritableArray
             val trackIds = (0 until tracks.size()).map { tracks.getMap(it)!!.getString("id")!! }
             val owned = CallRuntime.owner.own(id) {
-              trackIds.forEach { rtc.mediaStreamTrackRelease(it) }
-              rtc.mediaStreamRelease(streamId)
+              CallMicrophoneRelease.release(
+                streamId,
+                trackIds,
+                { stream, track -> rtc.mediaStreamRemoveTrack(stream, -1, track) },
+                { track -> rtc.mediaStreamTrackRelease(track) },
+                { stream -> rtc.mediaStreamRelease(stream) },
+              )
             }
             if (owned) promise.resolve(mapOf("streamId" to streamId, "streamReactTag" to streamId, "tracks" to tracks.toArrayList()))
             else promise.reject("ERR_CALL_ENDED", "Call ended", null)
