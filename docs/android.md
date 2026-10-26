@@ -163,7 +163,11 @@ Headers reserve the strip through the descendant top inset, which includes the
 system inset and the strip's rendered height once. Left, right, and bottom
 insets remain unchanged. Do not insert the strip as a flex sibling above a
 native stack: its screen-size feedback can briefly push the composer below the
-window before the nested screen receives its new size.
+window before the nested screen receives its new size. The floating workspace
+header paints an opaque `surfaceWorkspace` within its measured bounds on
+Android. Its SVG fade is only the trailing transition, not the contrast owner
+for navigation controls; native history can otherwise show through the title and
+menu even when the header geometry is correct.
 
 Calls require a rebuilt standalone app with `react-native-webrtc`,
 `react-native-incall-manager`, and the local `paseo-call` module; Expo Go cannot
