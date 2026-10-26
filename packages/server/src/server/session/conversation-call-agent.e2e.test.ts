@@ -142,7 +142,18 @@ test("reads an existing answer while a real Pi request observation remains pendi
     },
   });
   const client = new DaemonClient({ url: `ws://127.0.0.1:${host.port}/ws`, appVersion: "0.23.0" });
-  const rpc = new MemoryCallRpc();
+  let offered!: () => void;
+  const delivery = new Promise<void>((resolve) => {
+    offered = resolve;
+  });
+  class DeliveryRpc extends MemoryCallRpc {
+    override async request(method: string, params?: unknown) {
+      const result = await super.request(method, params);
+      if (method === "thread/realtime/appendText") offered();
+      return result;
+    }
+  }
+  const rpc = new DeliveryRpc();
   let voice: CodexConversationCall | undefined;
   try {
     await client.connect();
@@ -192,6 +203,13 @@ test("reads an existing answer while a real Pi request observation remains pendi
     rpc.notifyHandler("serverRequest/resolved", { threadId: "voice-thread", requestId: 1 });
     expect(await waiting).toMatchObject({ success: false });
     expect(host.daemon.agentManager.getAgent(pi.id)?.lifecycle).toBe("running");
+    release();
+    await host.daemon.agentManager.waitForAgentEvent(pi.id);
+    await delivery;
+    expect(
+      JSON.stringify(rpc.requests.filter((entry) => entry.method === "thread/realtime/appendText")),
+    ).toContain("Already posted answer while request is pending");
+    expect(prompts).toHaveLength(1);
   } finally {
     release();
     await voice?.stop();
@@ -326,6 +344,10 @@ test("binds only an eligible live Pi under the caller's current workspace author
     await expect(bound.history({}, cancelledRead.signal)).rejects.toThrow();
     expect(host.daemon.agentManager.hasInFlightRun(pi.id)).toBe(false);
     allowed = false;
+    await expect(bound.status(signal)).rejects.toThrow("workspace authority");
+    await expect(bound.request("must not be submitted", signal)).rejects.toThrow(
+      "workspace authority",
+    );
     await expect(bound.history({}, signal)).rejects.toThrow("workspace authority");
     await expect(resolve(pi.id)).rejects.toThrow("workspace authority");
     allowed = true;

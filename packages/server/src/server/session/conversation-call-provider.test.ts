@@ -1,8 +1,313 @@
 import { expect, test } from "vitest";
 import { CodexConversationCall } from "./conversation-call-provider.js";
+import { CallResponseDelivery } from "./conversation-call-delivery.js";
 import { MemoryCallRpc as MemoryRpc } from "./test-utils/call-rpc.js";
 import { conversationHistory } from "./conversation-call-history.js";
 import type { AgentTimelineRow } from "../agent/agent-timeline-store-types.js";
+
+test("offers an answer arriving after canceled observation without consuming catchup or resending Pi", async () => {
+  const offered = deferred<void>();
+  class DeliveryRpc extends MemoryRpc {
+    override async request(method: string, params?: unknown) {
+      const result = await super.request(method, params);
+      if (method === "thread/realtime/appendText") offered.resolve();
+      return result;
+    }
+  }
+  const rpc = new DeliveryRpc();
+  const rows: AgentTimelineRow[] = [];
+  let changed = () => {};
+  let listeners = 0;
+  let sends = 0;
+  const requested = deferred<void>();
+  const call = new CodexConversationCall(rpc, {
+    agent: {
+      title: "Bound Pi",
+      cwd: "/tmp",
+      subscribe(onChange: () => void) {
+        changed = onChange;
+        listeners++;
+        return () => {
+          listeners--;
+        };
+      },
+      async history(input, signal) {
+        signal.throwIfAborted();
+        return { ...conversationHistory(rows, input), epoch: "one" };
+      },
+      async request(_text, signal) {
+        sends++;
+        requested.resolve();
+        await new Promise<void>((_resolve, reject) =>
+          signal.addEventListener("abort", () => reject(new Error("canceled")), { once: true }),
+        );
+        return "unreachable";
+      },
+      async status() {
+        return "Pi status: idle";
+      },
+    },
+    emit() {},
+    signal: new AbortController().signal,
+  });
+  try {
+    await call.start("offer");
+    const waiting = rpc.tool(
+      {
+        threadId: "voice-thread",
+        callId: "request",
+        tool: "paseo_pi_request",
+        arguments: { instruction: "original task" },
+      },
+      1,
+    );
+    await requested.promise;
+    rpc.notifyHandler("serverRequest/resolved", { threadId: "voice-thread", requestId: 1 });
+    expect(await waiting).toMatchObject({ success: false });
+    rows.push({
+      seq: 2,
+      timestamp: "2026-01-01T00:00:00Z",
+      item: { type: "assistant_message", text: "Exact existing answer: ORCHID NINE" },
+    });
+    changed();
+    await offered.promise;
+    expect(
+      JSON.stringify(rpc.requests.filter((entry) => entry.method === "thread/realtime/appendText")),
+    ).toContain("Exact existing answer: ORCHID NINE");
+    const catchup = (await rpc.tool(
+      { threadId: "voice-thread", callId: "read", tool: "paseo_pi_catchup", arguments: {} },
+      2,
+    )) as { contentItems: Array<{ text: string }> };
+    expect(JSON.parse(catchup.contentItems[0]!.text).messages).toEqual([
+      {
+        seq: 2,
+        role: "assistant",
+        text: "Exact existing answer: ORCHID NINE",
+        textTruncated: false,
+      },
+    ]);
+    changed();
+    await Promise.resolve();
+    expect(
+      rpc.requests.filter((entry) => entry.method === "thread/realtime/appendText"),
+    ).toHaveLength(1);
+    expect(sends).toBe(1);
+  } finally {
+    await call.stop();
+  }
+  expect(listeners).toBe(0);
+});
+
+test("status correlates a pending request with its own timeline boundary instead of an older answer", async () => {
+  const entered = deferred<void>();
+  const rpc = new MemoryRpc();
+  const rows: AgentTimelineRow[] = [
+    {
+      seq: 1,
+      timestamp: "2026-01-01T00:00:00Z",
+      item: { type: "assistant_message", text: "old unrelated answer" },
+    },
+  ];
+  const call = new CodexConversationCall(rpc, {
+    agent: {
+      title: "Pi",
+      cwd: "/tmp",
+      async history(input) {
+        return { ...conversationHistory(rows, input), epoch: "one" };
+      },
+      async request(_instruction, signal) {
+        entered.resolve();
+        await new Promise<void>((_resolve, reject) =>
+          signal.addEventListener("abort", () => reject(new Error("canceled")), { once: true }),
+        );
+        return "unreachable";
+      },
+      async status() {
+        return "Pi status: running. Latest assistant reply: old unrelated answer";
+      },
+    },
+    emit() {},
+    signal: new AbortController().signal,
+  });
+  await call.start("offer");
+  const waiting = rpc.tool(
+    {
+      threadId: "voice-thread",
+      callId: "request",
+      tool: "paseo_pi_request",
+      arguments: { instruction: "new question" },
+    },
+    1,
+  );
+  await entered.promise;
+  const status = async (id: number) => {
+    const result = (await rpc.tool(
+      { threadId: "voice-thread", callId: String(id), tool: "paseo_pi_status", arguments: {} },
+      id,
+    )) as { contentItems: Array<{ text: string }> };
+    return JSON.parse(result.contentItems[0]!.text);
+  };
+  try {
+    expect(await status(2)).toMatchObject({
+      requestReply: "not_in_checked_window",
+      requestBoundary: { after: 1, epoch: "one" },
+      messages: [],
+    });
+    rows.push({
+      seq: 5,
+      timestamp: "2026-01-01T00:00:01Z",
+      item: { type: "assistant_message", text: "actual new answer" },
+    });
+    expect(await status(3)).toMatchObject({
+      requestReply: "available",
+      messages: [{ seq: 5, text: "actual new answer" }],
+    });
+  } finally {
+    await call.stop();
+    await waiting;
+  }
+});
+
+test("completion offers preserve message gaps, retry failed transport, and reject changed authority or epoch", async () => {
+  const rows: AgentTimelineRow[] = [];
+  let epoch = "one";
+  let allowed = true;
+  const rpc = new MemoryRpc();
+  function createDelivery() {
+    return new CallResponseDelivery({
+      agent: {
+        title: "Pi",
+        cwd: "/tmp",
+        async history(input, signal) {
+          signal.throwIfAborted();
+          if (!allowed) throw new Error("revoked");
+          return { ...conversationHistory(rows, input), epoch };
+        },
+        async request() {
+          throw new Error("must never resend");
+        },
+        async status() {
+          return "idle";
+        },
+      },
+      rpc,
+      threadId: "voice-thread",
+      startup: { ...conversationHistory([], {}), epoch: "one" },
+      signal: new AbortController().signal,
+    });
+  }
+  const delivery = createDelivery();
+  rows.push(
+    {
+      seq: 3,
+      timestamp: "2026-01-01T00:00:00Z",
+      item: { type: "user_message", text: "typed question" },
+    },
+    {
+      seq: 7,
+      timestamp: "2026-01-01T00:00:01Z",
+      item: { type: "assistant_message", text: "typed answer one" },
+    },
+    {
+      seq: 9,
+      timestamp: "2026-01-01T00:00:02Z",
+      item: { type: "assistant_message", text: "async answer two" },
+    },
+  );
+  rpc.failMethod = "thread/realtime/appendText";
+  await delivery.refresh();
+  expect(
+    rpc.requests.filter((entry) => entry.method === "thread/realtime/appendText"),
+  ).toHaveLength(1);
+  rpc.failMethod = null;
+  await delivery.refresh();
+  const offers = rpc.requests.filter((entry) => entry.method === "thread/realtime/appendText");
+  expect(offers).toHaveLength(2);
+  expect(JSON.stringify(offers[1])).toContain("typed answer one");
+  expect(JSON.stringify(offers[1])).toContain("async answer two");
+  await delivery.refresh();
+  expect(
+    rpc.requests.filter((entry) => entry.method === "thread/realtime/appendText"),
+  ).toHaveLength(2);
+  rows.push({
+    seq: 12,
+    timestamp: "2026-01-01T00:00:03Z",
+    item: { type: "assistant_message", text: "must not leak" },
+  });
+  allowed = false;
+  await delivery.refresh();
+  expect(
+    rpc.requests.filter((entry) => entry.method === "thread/realtime/appendText"),
+  ).toHaveLength(2);
+  expect(delivery.snapshot().active).toBe(false);
+  allowed = true;
+  epoch = "rewritten";
+  const rewrittenDelivery = createDelivery();
+  await rewrittenDelivery.refresh();
+  expect(rewrittenDelivery.snapshot().active).toBe(false);
+  expect(JSON.stringify(rpc.requests)).not.toContain("must not leak");
+  await delivery.refresh();
+  delivery.stop();
+});
+
+test.each(["stop", "revoke", "epoch"])(
+  "does not offer late completion after %s during context transport",
+  async (change) => {
+    const entered = deferred<void>();
+    const release = deferred<void>();
+    let allowed = true;
+    let epoch = "one";
+    class GatedRpc extends MemoryRpc {
+      override async request(method: string, params?: unknown) {
+        const result = await super.request(method, params);
+        if (method === "thread/inject_items") {
+          entered.resolve();
+          await release.promise;
+        }
+        return result;
+      }
+    }
+    const rpc = new GatedRpc();
+    const rows: AgentTimelineRow[] = [
+      {
+        seq: 4,
+        timestamp: "2026-01-01T00:00:00Z",
+        item: { type: "assistant_message", text: "existing answer" },
+      },
+    ];
+    const delivery = new CallResponseDelivery({
+      agent: {
+        title: "Pi",
+        cwd: "/tmp",
+        async history(input) {
+          if (!allowed) throw new Error("revoked");
+          return { ...conversationHistory(rows, input), epoch };
+        },
+        async request() {
+          throw new Error("must not resend");
+        },
+        async status() {
+          return "idle";
+        },
+      },
+      rpc,
+      threadId: "old-call-only",
+      startup: { ...conversationHistory([], {}), epoch: "one" },
+      signal: new AbortController().signal,
+    });
+    const pending = delivery.refresh();
+    await entered.promise;
+    if (change === "stop") delivery.stop();
+    if (change === "revoke") allowed = false;
+    if (change === "epoch") epoch = "two";
+    release.resolve();
+    await pending;
+    expect(rpc.requests.filter((entry) => entry.method === "thread/realtime/appendText")).toEqual(
+      [],
+    );
+    delivery.stop();
+  },
+);
 
 const emptyHistory = async () => conversationHistory([], {});
 

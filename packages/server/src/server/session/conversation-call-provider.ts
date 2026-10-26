@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CallResponseDelivery } from "./conversation-call-delivery.js";
 import type { CallProvider, CallProviderOptions } from "./conversation-call.js";
 import { HistoryInputSchema, type HistoryPage } from "./conversation-call-history.js";
 import {
@@ -68,9 +69,12 @@ export class CodexConversationCall implements CallProvider {
   // History and request/status may overlap; none implies that the user heard anything.
   private deliveredCursor: number | null = null;
   private deliveredEpoch: string | undefined;
+  private lastReturnedPage: HistoryPage | null = null;
+  private requestBoundary: { after: number; epoch?: string } | null = null;
   private ready = false;
   private readonly summaryAbort = new AbortController();
   private briefingState: BriefingState = { status: "not_needed" };
+  private delivery: CallResponseDelivery | null = null;
 
   constructor(
     private readonly rpc: CallRpc,
@@ -284,6 +288,16 @@ export class CodexConversationCall implements CallProvider {
     this.deliveredCursor = startupPage.messages.at(-1)?.seq ?? 0;
     this.deliveredEpoch = startupPage.epoch;
     this.ready = true;
+    if (this.options.agent.subscribe) {
+      this.delivery = new CallResponseDelivery({
+        agent: this.options.agent,
+        rpc: this.rpc,
+        threadId: this.threadId,
+        startup: startupPage,
+        signal: this.options.signal,
+      });
+      this.delivery.start();
+    }
     if (briefing) void this.updateBriefing(startupPage, briefing);
     return sdpAnswer;
   }
@@ -394,7 +408,7 @@ export class CodexConversationCall implements CallProvider {
           status: "working",
           text: "Observing the bound Pi request; read-only tools remain available",
         });
-      const { text, cursor, epoch } = await this.executeTool(data.tool, args, signal);
+      const { text, cursor, epoch, page } = await this.executeTool(data.tool, args, signal);
       signal.throwIfAborted();
       if (this.stopped) throw new Error("Call ended");
       const result = toolResult(true, text);
@@ -404,6 +418,7 @@ export class CodexConversationCall implements CallProvider {
       if (catchup) {
         this.deliveredCursor = cursor;
         this.deliveredEpoch = epoch;
+        if (page?.messages.length) this.lastReturnedPage = page;
       }
       return result;
     } catch {
@@ -416,6 +431,7 @@ export class CodexConversationCall implements CallProvider {
       if (mutating) this.requestBusy = false;
       if (catchup) this.catchupBusy = false;
       this.activeTools.delete(requestId);
+      if (mutating) void this.delivery?.refresh();
     }
   }
 
@@ -427,6 +443,7 @@ export class CodexConversationCall implements CallProvider {
     let cursor = this.deliveredCursor;
     let epoch = this.deliveredEpoch;
     let text: string;
+    let returnedPage: HistoryPage | undefined;
     switch (tool) {
       case "paseo_pi_briefing": {
         const current = await this.options.agent.history({ limit: 1 }, signal);
@@ -434,11 +451,15 @@ export class CodexConversationCall implements CallProvider {
         text = briefingContext(this.briefingState);
         break;
       }
-      case "paseo_pi_request":
+      case "paseo_pi_request": {
+        const boundary = await this.options.agent.history({ limit: 1 }, signal);
+        signal.throwIfAborted();
+        this.requestBoundary = { after: boundary.messages.at(-1)?.seq ?? 0, epoch: boundary.epoch };
         text = await this.options.agent.request(InstructionSchema.parse(args).instruction, signal);
         break;
+      }
       case "paseo_pi_status":
-        text = await this.options.agent.status(signal);
+        text = await this.requestStatus(signal);
         break;
       case "paseo_pi_history":
         text = JSON.stringify(
@@ -452,18 +473,61 @@ export class CodexConversationCall implements CallProvider {
         if (epoch !== undefined && page.epoch !== epoch)
           throw new Error("Pi timeline changed; start a new call");
         epoch = page.epoch;
+        returnedPage = page;
         cursor = page.messages.at(-1)?.seq ?? cursor ?? 0;
-        text = JSON.stringify({ ...page, deliveredCursor: cursor });
+        const result = {
+          ...page,
+          deliveredCursor: cursor,
+          ...(this.delivery ? { delivery: this.delivery.snapshot() } : {}),
+          ...(!page.messages.length && this.lastReturnedPage
+            ? {
+                lastReturnedPage: this.lastReturnedPage,
+                deliveryNote:
+                  "Retained for interrupted-result recovery; not proof of consumption, speech, or hearing. Use history for earlier messages or skippedOlder recovery data.",
+              }
+            : {}),
+        };
+        text = JSON.stringify(result);
+        if (Buffer.byteLength(text) > 10000 && result.lastReturnedPage) {
+          result.lastReturnedPage = {
+            ...result.lastReturnedPage,
+            messages: result.lastReturnedPage.messages.slice(-1),
+            skippedOlder: true,
+          };
+          text = JSON.stringify(result);
+        }
         break;
       }
     }
-    return { text, cursor, epoch };
+    return { text, cursor, epoch, page: returnedPage };
+  }
+
+  private async requestStatus(signal: AbortSignal): Promise<string> {
+    const requestBoundary = this.requestBoundary;
+    const status = await this.options.agent.status(signal);
+    if (!requestBoundary) return status;
+    const page = await this.options.agent.history(
+      { after: requestBoundary.after, limit: 20 },
+      signal,
+    );
+    if (page.epoch !== requestBoundary.epoch) throw new Error("Pi request timeline changed");
+    return JSON.stringify({
+      statusSnapshot: status.slice(0, 400),
+      statusSnapshotTruncated: status.length > 400,
+      requestBoundary,
+      requestReply: page.messages.some((message) => message.role === "assistant")
+        ? "available"
+        : "not_in_checked_window",
+      ...page,
+      note: "The latest assistant in statusSnapshot is not request-correlated. Use messages after requestBoundary. No reply in this checked window is not proof of absence; paginate hasMore. Read failure is not pending work.",
+    });
   }
 
   stop(): Promise<void> {
     if (this.stopping) return this.stopping;
     this.stopped = true;
     this.summaryAbort.abort();
+    this.delivery?.stop();
     for (const observation of this.activeTools.values()) observation.abort();
     this.rejectStart?.(new Error("Call ended"));
     this.options.signal.removeEventListener("abort", this.onAbort);

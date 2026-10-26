@@ -9,6 +9,7 @@ export interface CallAgent {
   request(instruction: string, signal: AbortSignal): Promise<string>;
   status(signal: AbortSignal): Promise<string>;
   history(input: HistoryInput, signal: AbortSignal): Promise<HistoryPage>;
+  subscribe?(onChange: () => void): () => void;
 }
 export interface CallProvider {
   start(sdp: string): Promise<string>;
@@ -93,6 +94,7 @@ export class ConversationCalls {
       const boundAgent: CallAgent = {
         title: agent.title,
         cwd: agent.cwd,
+        subscribe: agent.subscribe?.bind(agent),
         async request(instruction, signal) {
           signal.throwIfAborted();
           const current = await resolveAgent(input.agentId);

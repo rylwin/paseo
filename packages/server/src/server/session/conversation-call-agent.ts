@@ -31,7 +31,28 @@ export async function resolveCallAgent(dependencies: Dependencies): Promise<Call
   return {
     title: agent.config.title ?? agentId,
     cwd: agent.cwd,
+    subscribe(onChange) {
+      // Subscribe to this fixed target only. History revalidates authority before any delivery.
+      // Running text chunks are not individual completion notifications.
+      return agentManager.subscribe(
+        (event) => {
+          if (
+            event.type === "timeline_replacement" ||
+            (event.type === "agent_state" && event.agent.lifecycle !== "running") ||
+            (event.type === "agent_stream" &&
+              event.event.type === "timeline" &&
+              event.event.item.type === "assistant_message" &&
+              !agentManager.hasInFlightRun(agentId))
+          ) {
+            onChange();
+          }
+        },
+        { agentId, replayState: false },
+      );
+    },
     async request(instruction, signal) {
+      signal.throwIfAborted();
+      await resolveCallAgent(dependencies);
       signal.throwIfAborted();
       const before = await agentManager.getTimelineRows(agentId);
       const lastSeq = before.at(-1)?.seq ?? 0;
@@ -62,6 +83,8 @@ export async function resolveCallAgent(dependencies: Dependencies): Promise<Call
       if (result.status !== "idle")
         throw new Error("Pi did not complete successfully; ask for status");
       const rows = await agentManager.getTimelineRows(agentId);
+      await resolveCallAgent(dependencies);
+      signal.throwIfAborted();
       const fresh = rows.filter(
         (row) => row.seq > lastSeq && row.item.type === "assistant_message",
       );
@@ -85,9 +108,13 @@ export async function resolveCallAgent(dependencies: Dependencies): Promise<Call
     },
     async status(signal) {
       signal.throwIfAborted();
+      await resolveCallAgent(dependencies);
+      signal.throwIfAborted();
       const current = agentManager.getAgent(agentId);
       if (!current) throw new Error("Pi is no longer live");
       const answer = await agentManager.getLastAssistantMessage(agentId);
+      await resolveCallAgent(dependencies);
+      signal.throwIfAborted();
       return `Pi status: ${current.lifecycle}. Pending permissions: ${current.pendingPermissions.size}. Latest assistant reply: ${answer ?? "No reply yet"}`.slice(
         0,
         12000,

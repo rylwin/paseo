@@ -78,6 +78,51 @@ test("read cancellation is request-scoped and a slow status cannot rewind catchu
   await call.stop();
 });
 
+test("interrupted-result recovery stays byte bounded alongside offer metadata", async () => {
+  const rows: AgentTimelineRow[] = [];
+  const rpc = new MemoryCallRpc();
+  const call = new CodexConversationCall(rpc, {
+    agent: {
+      title: "Pi",
+      cwd: "/tmp",
+      subscribe() {
+        return () => {};
+      },
+      async request() {
+        throw new Error("no work");
+      },
+      async status() {
+        return "idle";
+      },
+      async history(input) {
+        return { ...conversationHistory(rows, input), epoch: "one" };
+      },
+    },
+    emit() {},
+    signal: new AbortController().signal,
+  });
+  await call.start("offer");
+  rows.push(
+    ...[1, 2].map(
+      (seq): AgentTimelineRow => ({
+        seq,
+        timestamp: "2026-01-01T00:00:00Z",
+        item: { type: "assistant_message", text: "z".repeat(4670) },
+      }),
+    ),
+  );
+  const tool = (id: number) =>
+    rpc.tool(
+      { threadId: "voice-thread", callId: String(id), tool: "paseo_pi_catchup", arguments: {} },
+      id,
+    );
+  await tool(1);
+  const result = (await tool(2)) as { contentItems: Array<{ text: string }> };
+  expect(Buffer.byteLength(result.contentItems[0]!.text)).toBeLessThanOrEqual(10000);
+  expect(JSON.parse(result.contentItems[0]!.text).lastReturnedPage.messages.at(-1).seq).toBe(2);
+  await call.stop();
+});
+
 test("catchup continues after quiet startup, preserves bounded pages, and history never moves its cursor", async () => {
   const rows: AgentTimelineRow[] = [];
   function append(text: string, user = false) {
@@ -156,7 +201,15 @@ test("catchup continues after quiet startup, preserves bounded pages, and histor
   const last = await tool("paseo_pi_catchup", { limit: 2 });
   expect(last).toMatchObject({ hasMore: false, deliveredCursor: 6 });
   expect(last.messages.map((message: { seq: number }) => message.seq)).toEqual([5, 6]);
-  expect((await tool("paseo_pi_catchup")).messages).toEqual([]);
+  const replayable = await tool("paseo_pi_catchup");
+  expect(replayable.messages).toEqual([]);
+  expect(replayable.lastReturnedPage).toMatchObject({
+    messages: [
+      { seq: 5, text: "another question" },
+      { seq: 6, text: "reply two" },
+    ],
+  });
+  expect(replayable.deliveryNote).toContain("not proof");
   expect(reads).toEqual([
     { limit: 20 },
     { after: 2, limit: 1 },
