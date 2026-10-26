@@ -5,10 +5,12 @@ import { createTestAgentClient } from "../test-utils/fake-agent-client.js";
 import { DaemonClient } from "../test-utils/daemon-client.js";
 import { resolveCallAgent } from "./conversation-call-agent.js";
 import { CodexConversationCall } from "./conversation-call-provider.js";
+import { ConversationCalls } from "./conversation-call.js";
+import { SessionDelivery } from "./owned-subscriptions/index.js";
 import { MemoryCallRpc } from "./test-utils/call-rpc.js";
 import { formatAgentMessage, projectAgentMessages } from "../agent/agent-messages/index.js";
 
-test("voice barge-in, control request cancellation and hangup preserve Pi work; a later call reads its completion", async () => {
+async function preservesPiWork(ending: "hangup" | "idle expiry") {
   let finish!: () => void;
   const gate = new Promise<void>((resolve) => {
     finish = resolve;
@@ -32,8 +34,14 @@ test("voice barge-in, control request cancellation and hangup preserve Pi work; 
       }),
     },
   });
-  const client = new DaemonClient({ url: `ws://127.0.0.1:${host.port}/ws`, appVersion: "0.23.0" });
-  const observation = new AbortController();
+  const client = new DaemonClient({
+    url: `ws://127.0.0.1:${host.port}/ws`,
+    appVersion: "0.23.0",
+  });
+  const delivery = new SessionDelivery(() => {});
+  const source = {};
+  let expire = async () => {};
+  let calls: ConversationCalls | undefined;
   try {
     await client.connect();
     await client.fetchAgents({ subscribe: {} });
@@ -46,12 +54,29 @@ test("voice barge-in, control request cancellation and hangup preserve Pi work; 
       logger: pino({ level: "silent" }),
     });
     const rpc = new MemoryCallRpc();
-    const voice = new CodexConversationCall(rpc, {
-      agent: bound,
-      emit() {},
-      signal: observation.signal,
+    calls = new ConversationCalls({
+      delivery,
+      resolveAgent: async () => bound,
+      createProvider: (options) => new CodexConversationCall(rpc, options),
+      scheduleEnd(callback) {
+        expire = callback;
+        return () => {};
+      },
     });
-    await voice.start("offer");
+    const ownedCalls = calls;
+    await delivery.request(
+      source,
+      {
+        type: "conversation.call.start.request",
+        requestId: "start",
+        callId: "voice",
+        agentId: pi.id,
+        sdp: "offer",
+      },
+      async () => {
+        await ownedCalls.start({ callId: "voice", agentId: pi.id, sdp: "offer" });
+      },
+    );
     const waiting = rpc.tool(
       {
         threadId: "voice-thread",
@@ -67,11 +92,19 @@ test("voice barge-in, control request cancellation and hangup preserve Pi work; 
       role: "user",
       text: "Wait, I am talking over you",
     });
-    rpc.notifyHandler("serverRequest/resolved", { threadId: "voice-thread", requestId: 1 });
+    if (ending === "hangup")
+      rpc.notifyHandler("serverRequest/resolved", { threadId: "voice-thread", requestId: 1 });
     expect(host.daemon.agentManager.getAgent(pi.id)?.lifecycle).toBe("running");
     expect(prompts).toHaveLength(1);
-    observation.abort();
-    await voice.stop();
+    if (ending === "idle expiry") await expire();
+    else
+      await delivery.request(
+        source,
+        { type: "conversation.call.end.request", requestId: "end", callId: "voice" },
+        () => ownedCalls.end("voice"),
+      );
+    expect(rpc.disposed).toBe(1);
+    expect(delivery.registrationCount).toBe(0);
     expect(await waiting).toMatchObject({ success: false });
     expect(host.daemon.agentManager.getAgent(pi.id)?.lifecycle).toBe("running");
     expect(await bound.status(new AbortController().signal)).toContain("Pi status: running");
@@ -112,10 +145,17 @@ test("voice barge-in, control request cancellation and hangup preserve Pi work; 
     await later.stop();
   } finally {
     finish();
+    await calls?.close();
+    await delivery.close();
     await client.close();
     await host.close();
   }
-});
+}
+
+test.each(["hangup", "idle expiry"] as const)(
+  "voice barge-in, control cancellation and %s preserve Pi work; a later call reads its completion",
+  preservesPiWork,
+);
 
 test("reads an existing answer while a real Pi request observation remains pending without resending", async () => {
   let release!: () => void;

@@ -708,6 +708,88 @@ test("cancellation rejects a missing answer and disposes the owned transport", a
   expect(rpc.disposed).toBe(1);
 });
 
+test("only thread-scoped live user and assistant transcript deltas and completions mark conversation activity", async () => {
+  const rpc = new MemoryRpc();
+  let activity = 0;
+  const call = new CodexConversationCall(rpc, {
+    agent: {
+      title: "Pi",
+      cwd: "/tmp",
+      history: emptyHistory,
+      async request() {
+        return "tool text is not speech";
+      },
+      async status() {
+        return "idle";
+      },
+    },
+    onConversationActivity() {
+      activity++;
+    },
+    emit() {},
+    signal: new AbortController().signal,
+  });
+  await call.start("offer");
+  try {
+    for (const role of ["user", "assistant"]) {
+      rpc.notifyHandler("thread/realtime/transcript/delta", {
+        threadId: "voice-thread",
+        role,
+        delta: "synthetic speech",
+      });
+      expect(activity).toBe(role === "user" ? 1 : 3);
+      rpc.notifyHandler("thread/realtime/transcript/done", {
+        threadId: "voice-thread",
+        role,
+        text: "synthetic speech",
+      });
+      expect(activity).toBe(role === "user" ? 2 : 4);
+    }
+    for (const method of ["thread/realtime/transcript/delta", "thread/realtime/transcript/done"]) {
+      for (const params of [
+        { threadId: "other-thread", role: "user", delta: "speech", text: "speech" },
+        { threadId: "voice-thread", role: "tool", delta: "result", text: "result" },
+        { threadId: "voice-thread", role: "assistant", delta: "  ", text: "  " },
+        { threadId: "voice-thread", role: "user", delta: 7, text: 7 },
+        { threadId: "voice-thread", delta: "missing role", text: "missing role" },
+      ])
+        rpc.notifyHandler(method, params);
+    }
+    rpc.notifyHandler("ping", { threadId: "voice-thread" });
+    rpc.notifyHandler("item/agentMessage/delta", {
+      threadId: "voice-thread",
+      delta: "control text",
+    });
+    rpc.notifyHandler("thread/realtime/item/added", {
+      threadId: "voice-thread",
+      item: { type: "metadata" },
+    });
+    await rpc.tool(
+      { threadId: "voice-thread", callId: "read", tool: "paseo_pi_history", arguments: {} },
+      1,
+    );
+    await rpc.tool(
+      {
+        threadId: "voice-thread",
+        callId: "work",
+        tool: "paseo_pi_request",
+        arguments: { instruction: "synthetic task" },
+      },
+      2,
+    );
+    expect(activity).toBe(4);
+  } finally {
+    await call.stop();
+  }
+  rpc.notifyHandler("thread/realtime/transcript/delta", {
+    threadId: "voice-thread",
+    role: "user",
+    delta: "late",
+  });
+  expect(activity).toBe(4);
+  expect(rpc.disposed).toBe(1);
+});
+
 test("forwards bounded transcripts and terminates on a provider error", async () => {
   const rpc = new MemoryRpc();
   const events: unknown[] = [];

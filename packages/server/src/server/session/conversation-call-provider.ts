@@ -107,17 +107,7 @@ export class CodexConversationCall implements CallProvider {
         if (parsed.success) this.answer?.(parsed.data.sdp);
         else this.fail("Invalid provider signaling. Ended the call; try again.");
       }
-      if (method === "thread/realtime/transcript/done") {
-        const transcript = z
-          .object({ role: z.enum(["user", "assistant"]), text: z.string() })
-          .safeParse(params);
-        if (transcript.success)
-          this.options.emit({
-            kind: "transcript",
-            role: transcript.data.role,
-            text: transcript.data.text.slice(0, 2000),
-          });
-      }
+      this.observeTranscript(method, params);
       if (method === "thread/realtime/error")
         this.fail(
           "GPT-Live reported a call error. Check host login and GPT-Live support, then try again.",
@@ -125,6 +115,30 @@ export class CodexConversationCall implements CallProvider {
       if (method === "thread/realtime/closed")
         this.fail("GPT-Live ended the call. You can call again.");
     });
+  }
+
+  private observeTranscript(method: string, params: unknown): void {
+    // WebRTC audio bypasses this server. These flat realtime transcript events
+    // are provider-observed conversation, unlike control tokens or tool/history text.
+    if (method === "thread/realtime/transcript/delta") {
+      const transcript = z
+        .object({ role: z.enum(["user", "assistant"]), delta: z.string().trim().min(1) })
+        .safeParse(params);
+      if (transcript.success) this.options.onConversationActivity?.();
+    }
+    if (method === "thread/realtime/transcript/done") {
+      const transcript = z
+        .object({ role: z.enum(["user", "assistant"]), text: z.string() })
+        .safeParse(params);
+      if (transcript.success) {
+        if (transcript.data.text.trim()) this.options.onConversationActivity?.();
+        this.options.emit({
+          kind: "transcript",
+          role: transcript.data.role,
+          text: transcript.data.text.slice(0, 2000),
+        });
+      }
+    }
   }
 
   async start(sdp: string): Promise<string> {

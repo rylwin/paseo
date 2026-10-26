@@ -1,4 +1,6 @@
 import { expect, test } from "vitest";
+import { CodexConversationCall } from "./conversation-call-provider.js";
+import { MemoryCallRpc } from "./test-utils/call-rpc.js";
 import {
   ConversationCalls,
   type CallAgent,
@@ -8,16 +10,22 @@ import {
 import { conversationHistory } from "./conversation-call-history.js";
 import { SessionDelivery } from "./owned-subscriptions/index.js";
 
-function fixture() {
+function fixture(
+  startProvider: () => Promise<void> = async () => {},
+  createProvider?: (options: CallProviderOptions) => CallProvider,
+) {
   const source = {};
   const starts: string[] = [];
   let stopped = 0;
   let allowed = true;
   let bound: CallProviderOptions | null = null;
   let expire = async () => {};
+  let now = 0;
+  const deadlines = new Set<{ at: number; callback(): Promise<void> }>();
   const provider: CallProvider = {
     async start(sdp) {
       starts.push(sdp);
+      await startProvider();
       return "answer";
     },
     async stop() {
@@ -37,12 +45,19 @@ function fixture() {
       return "idle";
     },
   };
-  const delivery = new SessionDelivery(() => {});
+  const messages: unknown[] = [];
+  const delivery = new SessionDelivery((_source, message) => {
+    messages.push(message);
+  });
   const calls = new ConversationCalls({
     delivery,
     scheduleEnd(callback) {
       expire = callback;
-      return () => {};
+      const deadline = { at: now + 10 * 60 * 1000, callback };
+      deadlines.add(deadline);
+      return () => {
+        deadlines.delete(deadline);
+      };
     },
     resolveAgent: async (id) => {
       if (!allowed || id !== "pi") throw new Error("Target is not an eligible live Pi agent");
@@ -50,7 +65,7 @@ function fixture() {
     },
     createProvider: (options) => {
       bound = options;
-      return provider;
+      return createProvider ? createProvider(options) : provider;
     },
   });
   function start(agentId = "pi", callId = "c1", owner = source) {
@@ -77,9 +92,27 @@ function fixture() {
     delivery,
     source,
     starts,
+    messages,
     start,
     end,
     expire: () => expire(),
+    get expiration() {
+      return expire;
+    },
+    async advance(minutes: number) {
+      const until = now + minutes * 60 * 1000;
+      for (;;) {
+        const next = [...deadlines].sort((a, b) => a.at - b.at)[0];
+        if (!next || next.at > until) break;
+        now = next.at;
+        deadlines.delete(next);
+        await next.callback();
+      }
+      now = until;
+    },
+    get timers() {
+      return deadlines.size;
+    },
     revoke() {
       allowed = false;
     },
@@ -99,6 +132,9 @@ test("starts the bound target and stops only the owned provider on disconnect", 
   expect(f.starts).toEqual(["offer"]);
   await f.delivery.detach(f.source);
   expect(f.stopped).toBe(1);
+  expect(f.timers).toBe(0);
+  await f.advance(30);
+  expect(f.stopped).toBe(1);
 });
 
 test("a sibling socket cannot end or retarget an active call", async () => {
@@ -109,6 +145,8 @@ test("a sibling socket cannot end or retarget an active call", async () => {
   expect(f.stopped).toBe(0);
   await f.end();
   expect(f.stopped).toBe(1);
+  expect(f.messages).toEqual([]);
+  expect(f.timers).toBe(0);
   await f.delivery.close();
 });
 
@@ -154,7 +192,141 @@ test("revoking call authority releases every owned call", async () => {
   await f.delivery.close();
 });
 
-test("the bounded call lifetime releases the provider without agent control", async () => {
+test("conversation at nine minutes survives the former absolute ten-minute limit", async () => {
+  const f = fixture();
+  await f.start();
+  await f.advance(9);
+  f.bound.onConversationActivity?.();
+  await f.advance(2);
+  expect(f.stopped).toBe(0);
+  await f.advance(8);
+  expect(f.stopped).toBe(1);
+  expect(f.timers).toBe(0);
+  await f.delivery.close();
+});
+
+test("idle timing begins at provider readiness, not during the separate startup deadline", async () => {
+  let ready = () => {};
+  const connecting = new Promise<void>((resolve) => {
+    ready = resolve;
+  });
+  const f = fixture(() => connecting);
+  const starting = f.start();
+  await Promise.resolve();
+  await f.advance(9);
+  expect(f.timers).toBe(0);
+  ready();
+  await starting;
+  await f.advance(9);
+  expect(f.stopped).toBe(0);
+  await f.advance(1);
+  expect(f.stopped).toBe(1);
+  await f.delivery.close();
+});
+
+test("provider user and assistant deltas keep a call alive beyond twenty minutes, then completion starts ten quiet minutes", async () => {
+  const rpc = new MemoryCallRpc();
+  const f = fixture(undefined, (options) => new CodexConversationCall(rpc, options));
+  await f.start();
+  for (let minute = 0; minute < 30; minute++) {
+    await f.advance(1);
+    rpc.notifyHandler("thread/realtime/transcript/delta", {
+      threadId: "voice-thread",
+      role: minute % 2 ? "user" : "assistant",
+      delta: "synthetic speech",
+    });
+    expect(rpc.disposed).toBe(0);
+    expect(f.timers).toBe(1);
+  }
+  await f.advance(1);
+  rpc.notifyHandler("thread/realtime/transcript/done", {
+    threadId: "voice-thread",
+    role: "assistant",
+    text: "synthetic speech ended",
+  });
+  await f.advance(9.999);
+  expect(rpc.disposed).toBe(0);
+  await f.advance(0.001);
+  expect(rpc.disposed).toBe(1);
+  expect(f.timers).toBe(0);
+  expect(f.messages).toContainEqual({
+    type: "conversation.call.event",
+    payload: {
+      callId: "c1",
+      event: {
+        kind: "error",
+        message:
+          "Call ended after ten minutes without conversation. Pi keeps working; you can call again.",
+      },
+    },
+  });
+  await f.advance(30);
+  expect(rpc.disposed).toBe(1);
+  expect(f.messages).toHaveLength(2); // One final transcript and one expiration notice.
+  expect(f.delivery.registrationCount).toBe(0);
+  await f.delivery.close();
+});
+
+test("tool observations, summaries, history and generic provider frames cannot reset idle time", async () => {
+  const rpc = new MemoryCallRpc();
+  const f = fixture(undefined, (options) => new CodexConversationCall(rpc, options));
+  await f.start();
+  await f.advance(9);
+  rpc.notifyHandler("ping", { threadId: "voice-thread" });
+  rpc.notifyHandler("thread/realtime/item/added", {
+    threadId: "voice-thread",
+    item: { type: "metadata" },
+  });
+  rpc.notifyHandler("thread/realtime/transcript/delta", {
+    threadId: "other-thread",
+    role: "user",
+    delta: "speech",
+  });
+  rpc.notifyHandler("item/agentMessage/delta", {
+    threadId: "voice-thread",
+    delta: "control tokens",
+  });
+  await rpc.tool(
+    { threadId: "voice-thread", callId: "history", tool: "paseo_pi_history", arguments: {} },
+    1,
+  );
+  f.bound.emit({ kind: "delegation", status: "working", text: "Pi still working" });
+  await f.advance(1);
+  expect(rpc.disposed).toBe(1);
+  expect(f.timers).toBe(0);
+  await f.delivery.close();
+});
+
+test("old callbacks and old call activity cannot expire or revive a replacement call", async () => {
+  const f = fixture();
+  await f.start();
+  const old = f.bound;
+  // Capture a timeout already queued before cancellation.
+  const queued = f.expiration;
+  await f.advance(9);
+  old.onConversationActivity?.();
+  await queued();
+  expect(f.stopped).toBe(0);
+  await f.end();
+  expect(f.timers).toBe(0);
+  await f.start("pi", "c2");
+  await f.advance(9);
+  old.onConversationActivity?.();
+  await queued();
+  expect(f.stopped).toBe(1);
+  expect(f.timers).toBe(1);
+  await f.advance(1);
+  expect(f.stopped).toBe(2);
+  old.onConversationActivity?.();
+  await queued();
+  await f.calls.close();
+  await f.advance(30);
+  expect(f.stopped).toBe(2);
+  expect(f.timers).toBe(0);
+  await f.delivery.close();
+});
+
+test("ten minutes without conversation releases the provider without agent control", async () => {
   const f = fixture();
   await f.start();
   await f.expire();

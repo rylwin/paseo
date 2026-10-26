@@ -19,6 +19,8 @@ export interface CallProviderOptions {
   agent: CallAgent;
   briefing?: BriefingGenerator;
   scheduleBriefingTimeout?(expire: () => void): () => void;
+  /** Validated live user/assistant speech transcripts, never tool or history text. */
+  onConversationActivity?(): void;
   emit(event: ConversationCallEvent): void;
   signal: AbortSignal;
 }
@@ -74,19 +76,28 @@ export class ConversationCalls {
         timer.unref();
         return () => clearTimeout(timer);
       });
-    cancelDeadline = schedule(() => {
-      owner.emit({
-        type: "conversation.call.event",
-        payload: {
-          callId: input.callId,
-          event: {
-            kind: "error",
-            message: "Call reached its ten-minute limit. Pi keeps working; you can call again.",
+    let ready = false;
+    let deadlineGeneration = 0;
+    const resetIdleDeadline = () => {
+      cancelDeadline();
+      if (!ready || owner.signal.aborted) return;
+      const generation = ++deadlineGeneration;
+      cancelDeadline = schedule(async () => {
+        if (owner.signal.aborted || generation !== deadlineGeneration) return;
+        owner.emit({
+          type: "conversation.call.event",
+          payload: {
+            callId: input.callId,
+            event: {
+              kind: "error",
+              message:
+                "Call ended after ten minutes without conversation. Pi keeps working; you can call again.",
+            },
           },
-        },
+        });
+        await owner.release();
       });
-      return owner.release();
-    });
+    };
     try {
       const agent = await this.dependencies.resolveAgent(input.agentId);
       owner.signal.throwIfAborted();
@@ -117,12 +128,17 @@ export class ConversationCalls {
       provider = this.dependencies.createProvider({
         agent: boundAgent,
         signal: owner.signal,
+        onConversationActivity: resetIdleDeadline,
         emit: (event) => {
           owner.emit({ type: "conversation.call.event", payload: { callId: input.callId, event } });
           if (event.kind === "error") void owner.release();
         },
       });
-      return await provider.start(input.sdp);
+      const answer = await provider.start(input.sdp);
+      owner.signal.throwIfAborted();
+      ready = true;
+      resetIdleDeadline();
+      return answer;
     } catch (error) {
       await owner.release();
       throw error;
