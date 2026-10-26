@@ -68,6 +68,11 @@ for (const width of [1280, 390]) {
         title: "Other call conversation",
       });
       const serverId = await getServerId();
+      // Let the fresh browser hydrate its host/workspace directory before a deep link.
+      await page.goto("/");
+      await expect(
+        page.getByText(workspace.projectDisplayName, { exact: true }).first(),
+      ).toBeVisible();
       await page.goto(`/h/${serverId}/agent/${other.id}`);
       await expect(page.getByTestId("conversation-call-start")).toBeVisible();
       await page.setViewportSize({ width, height: 900 });
@@ -114,6 +119,7 @@ for (const width of [1280, 390]) {
       expect(await phone.boundingBox()).toEqual(idleBox);
       const host = page.getByTestId("conversation-call-host");
       await expect(host).toBeVisible();
+      await expect(host).toContainText("Connecting...");
       await expect(host.getByRole("button")).toHaveCount(3);
       await host.getByRole("button", { name: "Mute microphone", exact: true }).click();
       await expect(
@@ -126,7 +132,10 @@ for (const width of [1280, 390]) {
       await page.setViewportSize({ width: 1280, height: 900 });
       await page.getByRole("button", { name: "Other call conversation", exact: true }).click();
       await expect(phone).toBeDisabled();
-      await expect(host).toContainText("Connecting call target");
+      await expect(host).toContainText("Connecting...");
+      await expect(
+        host.getByRole("button", { name: "Return to call with Connecting call target" }),
+      ).toBeVisible();
       await expect(
         host.getByRole("button", { name: "Mute microphone", exact: true }),
       ).toBeVisible();

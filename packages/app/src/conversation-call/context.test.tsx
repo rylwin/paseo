@@ -215,17 +215,17 @@ test("connected composer stays selected, cannot retarget, and ends only the capt
   expect(phone().getAttribute("aria-selected")).toBe("false");
 });
 
-test("target conversation has only composer controls; away identity returns to the captured agent", async () => {
+test("the compact strip stays visible and its identity returns to the captured agent", async () => {
   render();
   await click();
-  expect(container.querySelector('[data-testid="conversation-call-host"]')).toBeNull();
+  expect(container.querySelector('[data-testid="conversation-call-host"]')).not.toBeNull();
   const mute = container.querySelector<HTMLButtonElement>('[aria-label="Mute microphone"]')!;
   expect(mute).not.toBeNull();
   act(() => mute.click());
   expect(container.querySelector('[aria-label="Unmute microphone"]')).not.toBeNull();
   render("other");
   const host = container.querySelector('[data-testid="conversation-call-host"]')!;
-  expect(host.textContent).toContain("Original agent");
+  expect(host.textContent).toContain("Connecting...");
   expect(host.textContent).not.toMatch(/GPT-Live call|Voice interruptions|host \/|pi$/);
   act(() =>
     container
@@ -234,7 +234,27 @@ test("target conversation has only composer controls; away identity returns to t
   );
   expect(boundary.navigate).toHaveBeenCalledWith({ serverId: "host", agentId: "pi" });
   render();
-  expect(container.querySelector('[data-testid="conversation-call-host"]')).toBeNull();
+  expect(container.querySelector('[data-testid="conversation-call-host"]')).not.toBeNull();
+});
+
+test("the strip acknowledges readiness briefly before showing the captured name", async () => {
+  vi.useFakeTimers();
+  try {
+    render();
+    await click();
+    const status = container.querySelector('[data-testid="conversation-call-status"]')!;
+    expect(status.textContent).toBe("Connecting...");
+    act(() => boundary.events!.connected());
+    expect(status.textContent).toBe("Ready");
+    act(() => vi.advanceTimersByTime(1799));
+    expect(status.textContent).toBe("Ready");
+    act(() => vi.advanceTimersByTime(1));
+    expect(status.textContent).toBe("Original agent");
+    render("other");
+    expect(status.textContent).toBe("Original agent");
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test("autoplay recovery remains actionable on the target without a diagnostic panel", async () => {
@@ -242,9 +262,12 @@ test("autoplay recovery remains actionable on the target without a diagnostic pa
   await click();
   act(() => boundary.events!.playbackBlocked(true));
   expect(container.textContent).toContain("Play call audio");
-  await act(async () => container.querySelector<HTMLButtonElement>('[role="button"]')!.click());
+  const play = Array.from(container.querySelectorAll<HTMLElement>('[role="button"]')).find(
+    (button) => button.textContent === "Play call audio",
+  )!;
+  await act(async () => play.click());
   expect(boundary.play).toHaveBeenCalledTimes(1);
-  expect(container.querySelector('[data-testid="conversation-call-host"]')).toBeNull();
+  expect(container.querySelector('[data-testid="conversation-call-host"]')).not.toBeNull();
 });
 
 test("failure keeps captured identity and recovery without transcript or raw IDs", async () => {
@@ -269,7 +292,10 @@ test("untitled calls use the normal agent fallback, never a raw ID or host name"
   await click();
   render("other");
   const host = container.querySelector('[data-testid="conversation-call-host"]')!;
-  expect(host.textContent).toBe(i18n.t("agentList.fallbackTitle"));
+  expect(host.textContent).toBe("Connecting...");
+  expect(host.querySelector('[role="button"]')?.getAttribute("aria-label")).toBe(
+    `Return to call with ${i18n.t("agentList.fallbackTitle")}`,
+  );
   expect(container.querySelector('[aria-label="Return to call with New session"]')).not.toBeNull();
 });
 

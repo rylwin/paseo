@@ -1,8 +1,13 @@
 import { isWeb } from "@/constants/platform";
 import type { CallMedia, MediaEvents } from "./controller";
+import { CallReadiness } from "./readiness";
+import { createReadyCue } from "./ready-cue.web";
 
-class BrowserCallMedia implements CallMedia {
+export class BrowserCallMedia implements CallMedia {
   private stopped = false;
+  private ready = false;
+  private muted = false;
+  private readonly readiness: CallReadiness;
   private stream: MediaStream | null = null;
   private peer: RTCPeerConnection | null = null;
   private readonly abort = new AbortController();
@@ -11,11 +16,34 @@ class BrowserCallMedia implements CallMedia {
   constructor(
     private readonly audio: HTMLAudioElement,
     private readonly events: MediaEvents,
+    private readonly acquire = () =>
+      navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true },
+        video: false,
+      }),
+    private readonly cue = createReadyCue(),
   ) {
-    this.deadline = setTimeout(
-      () => events.failed("Call connection timed out. Check the host and try again."),
-      95000,
+    this.readiness = new CallReadiness(
+      () => {
+        if (this.stopped) return;
+        this.ready = true;
+        clearTimeout(this.deadline);
+        this.mute(this.muted);
+        this.events.connected();
+        if (!this.stopped) {
+          try {
+            this.cue.play();
+          } catch {
+            /* A blocked cue must not fail the call. */
+          }
+        }
+      },
+      (message) => this.events.failed(message),
     );
+    this.deadline = setTimeout(() => {
+      this.readiness.stop();
+      events.failed("Call connection timed out. Check the host and try again.");
+    }, 95000);
   }
 
   async offer(): Promise<string> {
@@ -26,10 +54,7 @@ class BrowserCallMedia implements CallMedia {
     void this.play();
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true },
-        video: false,
-      });
+      stream = await this.acquire();
     } catch (error) {
       if (error instanceof Error && error.name === "NotAllowedError")
         throw new Error(
@@ -45,9 +70,14 @@ class BrowserCallMedia implements CallMedia {
       throw new Error("Call ended");
     }
     this.stream = stream;
+    this.mute(this.muted);
     const peer = new RTCPeerConnection();
     this.peer = peer;
-    peer.createDataChannel("realtime-events");
+    const channel = peer.createDataChannel("realtime-events");
+    channel.addEventListener("open", () => this.readiness.channelOpened());
+    channel.addEventListener("message", (event) => this.readiness.message(event.data));
+    channel.addEventListener("close", () => this.readiness.channelClosed());
+    channel.addEventListener("error", () => this.readiness.channelError());
     stream.getTracks().forEach((track) => peer.addTrack(track, stream));
     peer.addEventListener("track", (event) => {
       if (this.stopped) return;
@@ -57,13 +87,14 @@ class BrowserCallMedia implements CallMedia {
     peer.addEventListener("connectionstatechange", () => {
       if (this.stopped) return;
       if (peer.connectionState === "connected") {
-        clearTimeout(this.deadline);
-        this.events.connected();
+        this.readiness.peerConnected();
       }
-      if (peer.connectionState === "disconnected" || peer.connectionState === "failed")
+      if (peer.connectionState === "disconnected" || peer.connectionState === "failed") {
+        this.readiness.stop();
         this.events.failed(
           "Audio connection lost. Pi may still be working; check its status before resending.",
         );
+      }
     });
     await peer.setLocalDescription(await peer.createOffer());
     await this.gather(peer);
@@ -103,8 +134,9 @@ class BrowserCallMedia implements CallMedia {
     await this.peer.setRemoteDescription({ type: "answer", sdp });
   }
   mute(muted: boolean) {
+    this.muted = muted;
     this.stream?.getAudioTracks().forEach((track) => {
-      track.enabled = !muted;
+      track.enabled = this.ready && !muted;
     });
   }
   async play(): Promise<boolean> {
@@ -120,6 +152,8 @@ class BrowserCallMedia implements CallMedia {
   stop() {
     if (this.stopped) return;
     this.stopped = true;
+    this.readiness.stop();
+    this.cue.stop();
     clearTimeout(this.deadline);
     this.abort.abort();
     this.stream?.getTracks().forEach((track) => track.stop());

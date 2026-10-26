@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { Text, View } from "react-native";
+import { useReducedMotion } from "react-native-reanimated";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { Phone, PhoneOutgoing, Mic, MicOff, PhoneOff } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
@@ -16,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { ToolbarButton } from "@/components/ui/pane-content-toolbar";
 import { CONTROL_HEIGHTS } from "@/components/ui/control-geometry";
 import { Alert } from "@/components/ui/alert";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { isWeb } from "@/constants/platform";
 import { useSessionStore } from "@/stores/session-store";
 import { navigateToAgent } from "@/utils/navigate-to-agent";
@@ -26,7 +28,12 @@ import {
 } from "@/runtime/host-runtime";
 import { useVoiceOptional } from "@/contexts/voice-context";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
-import { ConversationCallController, type CallSignaling, type CallTarget } from "./controller";
+import {
+  ConversationCallController,
+  type CallSignaling,
+  type CallTarget,
+  type CallSnapshot,
+} from "./controller";
 import { createCallMedia } from "./media";
 
 const CallContext = createContext<ConversationCallController | null>(null);
@@ -55,9 +62,23 @@ const ThemedConnectingPhone = withUnistyles(PhoneOutgoing, (theme) => ({
   size: theme.iconSize.md,
 }));
 
+const ThemedSpinner = withUnistyles(LoadingSpinner, (theme) => ({
+  color: theme.colors.foreground,
+  size: 14,
+}));
+
+function ConnectingIndicator() {
+  const reducedMotion = useReducedMotion();
+  return (
+    <View style={styles.connectingIcon}>
+      {reducedMotion ? <ThemedConnectingPhone /> : <ThemedSpinner />}
+    </View>
+  );
+}
+
 const phoneIcon = <ThemedPhone />;
 const livePhoneIcon = <ThemedLivePhone />;
-const connectingPhoneIcon = <ThemedConnectingPhone />;
+const connectingPhoneIcon = <ConnectingIndicator />;
 
 function signaling(client: DaemonClient): CallSignaling {
   return {
@@ -197,6 +218,30 @@ export function ConversationCallAction({
   );
 }
 
+function CallIdentity({ snapshot }: { snapshot: CallSnapshot }) {
+  const target = snapshot.phase === "idle" ? null : snapshot.target;
+  const [acknowledgedTarget, setAcknowledgedTarget] = useState<CallTarget | null>(null);
+  useEffect(() => {
+    if (snapshot.phase !== "connected") return;
+    // This timer only retires the acknowledgement; media events determine readiness.
+    const timeout = setTimeout(() => setAcknowledgedTarget(target), 1800);
+    return () => clearTimeout(timeout);
+  }, [snapshot.phase, target]);
+  let statusLabel = snapshot.phase === "idle" ? "" : snapshot.target.label;
+  if (snapshot.phase === "connecting") statusLabel = "Connecting...";
+  if (snapshot.phase === "connected" && acknowledgedTarget !== target) statusLabel = "Ready";
+  return (
+    <Text
+      numberOfLines={1}
+      style={styles.identityText}
+      accessibilityLiveRegion="polite"
+      testID="conversation-call-status"
+    >
+      {statusLabel}
+    </Text>
+  );
+}
+
 function ConversationCallHost() {
   const controller = useCall();
   const snapshot = useSyncExternalStore(
@@ -220,15 +265,7 @@ function ConversationCallHost() {
     if (state.phase !== "idle")
       navigateToAgent({ serverId: state.target.serverId, agentId: state.target.agentId });
   }, [controller]);
-  const targetLabel = snapshot.phase === "idle" ? "" : snapshot.target.label;
-  const identity = useMemo(
-    () => (
-      <Text numberOfLines={1} style={styles.identityText}>
-        {targetLabel}
-      </Text>
-    ),
-    [targetLabel],
-  );
+  const identity = useMemo(() => <CallIdentity snapshot={snapshot} />, [snapshot]);
   if (!isWeb || snapshot.phase === "idle" || snapshot.phase === "ended") return null;
   const active = snapshot.phase === "connecting" || snapshot.phase === "connected";
   return (
@@ -286,6 +323,12 @@ const styles = StyleSheet.create((theme) => ({
   controls: { flexDirection: "row", alignItems: "center", gap: theme.spacing[1] },
   identity: { flex: 1, minWidth: 0, justifyContent: "flex-start" },
   identityText: { flexShrink: 1, fontSize: theme.fontSize.base, color: theme.colors.foreground },
+  connectingIcon: {
+    width: theme.iconSize.md,
+    height: theme.iconSize.md,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   composerAction: { width: CONTROL_HEIGHTS.tight, height: CONTROL_HEIGHTS.tight },
   touchTarget: { minWidth: theme.spacing[12], minHeight: theme.spacing[12] },
 }));
