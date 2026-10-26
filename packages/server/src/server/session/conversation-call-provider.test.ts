@@ -967,6 +967,31 @@ test("Voice and control accept direct coding conversation with evidence-based fi
   await f.call.stop();
 });
 
+test("Voice receives faster conversational cadence without changing its voice or stock prompt", async () => {
+  const f = briefingFixture();
+  await f.call.start("offer");
+  const realtime = f.rpc.requests.find((r) => r.method === "thread/realtime/start")!.params as {
+    initialItems: Array<{ role: string; text: string }>;
+    realtimeStartInstructions: string;
+  };
+  const interaction = realtime.initialItems[1]!;
+  expect(interaction.role).toBe("developer");
+  expect(interaction.text).toContain(
+    "Speak at a noticeably faster conversational pace. Keep pauses short and move directly between ideas. Stay clear and articulate, but avoid a slow, measured delivery. Keep exactly the same voice and accent.",
+  );
+  expect(interaction.text).not.toMatch(
+    /eighty one|twenty to twenty two|words per minute|read.*verbatim|omit any words/i,
+  );
+  expect(realtime.realtimeStartInstructions).toContain(interaction.text);
+  expect(realtime).not.toHaveProperty("prompt");
+  expect(realtime).toMatchObject({
+    voice: "cove",
+    delegationAckFiller: true,
+    includeStartupContext: false,
+  });
+  await f.call.stop();
+});
+
 test("startup context failure closes safely without fabricated history awareness", async () => {
   const rpc = new MemoryRpc();
   const call = new CodexConversationCall(rpc, {
