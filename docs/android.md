@@ -158,9 +158,12 @@ the app does not raise the user's volume. The InCallManager patch exposes its
 existing default-device setter because its public forced-route APIs override
 headset priority. Route indicators follow native reports, not requested state.
 
-While the native call strip is visible, it owns the top safe-area inset. Its
-content subtree receives a zero top inset so app headers do not apply it again;
-left, right, and bottom insets remain owned by their existing surfaces.
+The native call strip overlays the navigator without resizing its viewport.
+Headers reserve the strip through the descendant top inset, which includes the
+system inset and the strip's rendered height once. Left, right, and bottom
+insets remain unchanged. Do not insert the strip as a flex sibling above a
+native stack: its screen-size feedback can briefly push the composer below the
+window before the nested screen receives its new size.
 
 Calls require a rebuilt standalone app with `react-native-webrtc`,
 `react-native-incall-manager`, and the local `paseo-call` module; Expo Go cannot

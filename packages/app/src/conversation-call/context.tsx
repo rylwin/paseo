@@ -8,7 +8,7 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { Platform, Text, View } from "react-native";
+import { Platform, Text, View, type LayoutChangeEvent } from "react-native";
 import { useReducedMotion } from "react-native-reanimated";
 import { SafeAreaInsetsContext, useSafeAreaInsets } from "react-native-safe-area-context";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
@@ -29,6 +29,7 @@ import { CONTROL_HEIGHTS } from "@/components/ui/control-geometry";
 import { Alert } from "@/components/ui/alert";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { isWeb } from "@/constants/platform";
+import { BORDER_WIDTH, SPACING } from "@/styles/theme";
 import { useSessionStore } from "@/stores/session-store";
 import { navigateToAgent } from "@/utils/navigate-to-agent";
 import {
@@ -47,6 +48,7 @@ import {
 import { createCallMedia, supportsCalls } from "./media";
 
 const CallContext = createContext<ConversationCallController | null>(null);
+const NATIVE_STRIP_HEIGHT = CONTROL_HEIGHTS.compact + 2 * SPACING[1] + BORDER_WIDTH[1];
 const ThemedMic = withUnistyles(Mic, (theme) => ({
   color: theme.colors.foreground,
   size: theme.iconSize.md,
@@ -143,14 +145,32 @@ export function ConversationCallProvider({ children }: { children: ReactNode }) 
     controller.getSnapshot,
   );
   const insets = useSafeAreaInsets();
+  const target = snapshot.phase === "idle" ? null : snapshot.target;
+  const [hostMeasurement, setHostMeasurement] = useState<{
+    target: CallTarget | null;
+    height: number;
+  }>({ target: null, height: NATIVE_STRIP_HEIGHT });
+  const hostHeight =
+    hostMeasurement.target === target ? hostMeasurement.height : NATIVE_STRIP_HEIGHT;
+  const measureHost = useCallback(
+    (event: LayoutChangeEvent) => {
+      const current = controller.getSnapshot();
+      if (current.phase === "idle" || current.target !== target) return;
+      setHostMeasurement({
+        target,
+        height: Math.max(NATIVE_STRIP_HEIGHT, event.nativeEvent.layout.height),
+      });
+    },
+    [controller, target],
+  );
   const ownsTopInset =
     !isWeb &&
     supportsCalls &&
     snapshot.phase !== "idle" &&
     !(Platform.OS === "android" && snapshot.phase === "ended");
   const contentInsets = useMemo(
-    () => (ownsTopInset ? { ...insets, top: 0 } : insets),
-    [insets, ownsTopInset],
+    () => (ownsTopInset ? { ...insets, top: insets.top + hostHeight } : insets),
+    [insets, ownsTopInset, hostHeight],
   );
   useEffect(() => () => controller.end(), [controller]);
   return (
@@ -165,7 +185,7 @@ export function ConversationCallProvider({ children }: { children: ReactNode }) 
                 { paddingTop: insets.top, paddingLeft: insets.left, paddingRight: insets.right },
               ]}
             >
-              <ConversationCallHost />
+              <ConversationCallHost onLayout={measureHost} />
             </View>
           ) : (
             <ConversationCallHost />
@@ -341,7 +361,7 @@ function CallIdentity({ snapshot }: { snapshot: CallSnapshot }) {
   );
 }
 
-function ConversationCallHost() {
+function ConversationCallHost({ onLayout }: { onLayout?: (event: LayoutChangeEvent) => void }) {
   const controller = useCall();
   const snapshot = useSyncExternalStore(
     controller.subscribe,
@@ -373,7 +393,7 @@ function ConversationCallHost() {
     return null;
   const active = snapshot.phase === "connecting" || snapshot.phase === "connected";
   return (
-    <View style={styles.host} testID="conversation-call-host">
+    <View style={styles.host} testID="conversation-call-host" onLayout={onLayout}>
       <View style={styles.panel}>
         {active ? (
           <View style={styles.row}>
@@ -441,7 +461,16 @@ function ConversationCallHost() {
 
 const styles = StyleSheet.create((theme) => ({
   root: { flex: 1 },
-  safeArea: { backgroundColor: theme.colors.surface3 },
+  // Native-stack screen sizes update after native layout. Keep its viewport unchanged when
+  // the strip appears; the descendant top inset reserves the strip instead of a flex sibling.
+  safeArea: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 1,
+    backgroundColor: theme.colors.surface3,
+  },
   host: {
     backgroundColor: theme.colors.surface3,
     borderBottomWidth: 1,

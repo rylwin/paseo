@@ -3,6 +3,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { MediaEvents } from "./controller";
+import type { LayoutChangeEvent } from "react-native";
 import { i18n } from "@/i18n/i18next";
 
 const boundary = vi.hoisted(() => ({
@@ -15,6 +16,7 @@ const boundary = vi.hoisted(() => ({
   setSpeaker: vi.fn(),
   voice: { isVoiceMode: false, isVoiceSwitching: false },
   events: null as MediaEvents | null,
+  stripLayout: null as ((event: LayoutChangeEvent) => void) | null,
   answer: vi.fn(),
   end: vi.fn(),
   stop: vi.fn(),
@@ -22,8 +24,13 @@ const boundary = vi.hoisted(() => ({
 }));
 vi.mock("react-native", async (importOriginal) => {
   const actual = await importOriginal<typeof import("react-native")>();
+  const { createElement } = await import("react");
   return {
     ...actual,
+    View: (props: React.ComponentProps<typeof actual.View>) => {
+      if (props.testID === "conversation-call-host") boundary.stripLayout = props.onLayout ?? null;
+      return createElement(actual.View, props);
+    },
     Platform: {
       ...actual.Platform,
       get OS() {
@@ -182,6 +189,7 @@ beforeEach(() => {
   boundary.title = "Original agent";
   boundary.voice = { isVoiceMode: false, isVoiceSwitching: false };
   boundary.events = null;
+  boundary.stripLayout = null;
   vi.clearAllMocks();
   boundary.start.mockImplementation(
     () =>
@@ -437,27 +445,93 @@ test("native speaker control reflects actual routes, waits for acknowledgement a
   expect(container.querySelector('[aria-label="Mute microphone"]')).not.toBeNull();
 });
 
-test("native call strip owns the top inset once and updates after rotation, then restores it", async () => {
+test("native call strip reserves one top inset without moving or resizing the navigator host", async () => {
   boundary.native = true;
   render();
-  const navigationInsets = () =>
-    JSON.parse(container.querySelector('[data-testid="navigation-insets"]')!.textContent!);
+  const navigationProbe = () => container.querySelector('[data-testid="navigation-insets"]')!;
+  const navigationInsets = () => JSON.parse(navigationProbe().textContent!);
+  const navigatorHost = navigationProbe().parentElement;
   expect(navigationInsets()).toEqual({ top: 24, bottom: 16, left: 0, right: 0 });
   await click();
   const safeArea = () =>
     container.querySelector<HTMLElement>('[data-testid="conversation-call-safe-area"]')!;
-  expect(safeArea()).not.toBeNull();
+  expect(navigationInsets()).toEqual({ top: 65, bottom: 16, left: 0, right: 0 });
+  expect(safeArea().style.position).toBe("absolute");
   expect(safeArea().style.paddingTop).toBe("24px");
-  expect(navigationInsets()).toEqual({ top: 0, bottom: 16, left: 0, right: 0 });
+  expect(navigationProbe().parentElement).toBe(navigatorHost);
+  act(() => boundary.events!.connected());
+  expect(container.querySelector('[data-testid="conversation-call-status"]')!.textContent).toBe(
+    "Ready",
+  );
+  expect(navigationInsets().top).toBe(65);
+  expect(navigationProbe().parentElement).toBe(navigatorHost);
   render("pi", { top: 0, bottom: 12, left: 30, right: 8 });
   expect(safeArea().style.paddingTop).toBe("0px");
   expect(safeArea().style.paddingLeft).toBe("30px");
   expect(safeArea().style.paddingRight).toBe("8px");
-  expect(navigationInsets()).toEqual({ top: 0, bottom: 12, left: 30, right: 8 });
+  expect(navigationInsets()).toEqual({ top: 41, bottom: 12, left: 30, right: 8 });
   await click();
   render();
   expect(safeArea()).toBeNull();
   expect(navigationInsets().top).toBe(24);
+  expect(navigationProbe().parentElement).toBe(navigatorHost);
+});
+
+test("native top clearance follows the rendered strip height without changing bottom or side insets", async () => {
+  boundary.native = true;
+  render();
+  await click();
+  act(() =>
+    boundary.stripLayout?.({
+      nativeEvent: { layout: { x: 0, y: 0, width: 390, height: 100 } },
+    } as LayoutChangeEvent),
+  );
+  expect(
+    JSON.parse(container.querySelector('[data-testid="navigation-insets"]')!.textContent!),
+  ).toEqual({ top: 124, bottom: 16, left: 0, right: 0 });
+  act(() => boundary.events!.connected());
+  expect(
+    JSON.parse(container.querySelector('[data-testid="navigation-insets"]')!.textContent!).top,
+  ).toBe(124);
+});
+
+test("a new native call never inherits a failed call's expanded height or a late measurement", async () => {
+  boundary.native = true;
+  render();
+  await click();
+  act(() => boundary.events!.failed("Microphone unavailable"));
+  const oldLayout = boundary.stripLayout;
+  act(() =>
+    oldLayout?.({
+      nativeEvent: { layout: { x: 0, y: 0, width: 390, height: 180 } },
+    } as LayoutChangeEvent),
+  );
+  expect(
+    JSON.parse(container.querySelector('[data-testid="navigation-insets"]')!.textContent!).top,
+  ).toBe(204);
+  const retry = Array.from(container.querySelectorAll<HTMLElement>('[role="button"]')).find(
+    (button) => button.textContent === "Call again",
+  )!;
+  await act(async () => retry.click());
+  expect(
+    JSON.parse(container.querySelector('[data-testid="navigation-insets"]')!.textContent!).top,
+  ).toBe(65);
+  act(() =>
+    boundary.stripLayout?.({
+      nativeEvent: { layout: { x: 0, y: 0, width: 390, height: 100 } },
+    } as LayoutChangeEvent),
+  );
+  act(() =>
+    oldLayout?.({
+      nativeEvent: { layout: { x: 0, y: 0, width: 390, height: 180 } },
+    } as LayoutChangeEvent),
+  );
+  expect(
+    JSON.parse(container.querySelector('[data-testid="navigation-insets"]')!.textContent!).top,
+  ).toBe(124);
+  expect(container.querySelector('[data-testid="conversation-call-status"]')!.textContent).toBe(
+    "Connecting...",
+  );
 });
 
 test("composer phone keeps the neighboring 28px circular geometry in all call states without a mute slot", async () => {
