@@ -271,7 +271,7 @@ test("compact strip is always present and identity returns to the captured agent
   expect(container.querySelector('[aria-label="Unmute microphone"]')).not.toBeNull();
   render("other");
   const host = container.querySelector('[data-testid="conversation-call-host"]')!;
-  expect(host.textContent).toContain("Original agent");
+  expect(host.textContent).toContain("Connecting...");
   expect(host.textContent).not.toMatch(/GPT-Live call|Voice interruptions|host \/|pi$/);
   act(() =>
     container
@@ -323,8 +323,31 @@ test("untitled calls use the normal agent fallback, never a raw ID or host name"
   await click();
   render("other");
   const host = container.querySelector('[data-testid="conversation-call-host"]')!;
-  expect(host.textContent).toContain(i18n.t("agentList.fallbackTitle"));
+  expect(host.textContent).toContain("Connecting...");
+  expect(host.querySelector('[role="button"]')?.getAttribute("aria-label")).toBe(
+    `Return to call with ${i18n.t("agentList.fallbackTitle")}`,
+  );
   expect(container.querySelector('[aria-label="Return to call with New session"]')).not.toBeNull();
+});
+
+test("the strip acknowledges readiness briefly before showing the captured name", async () => {
+  vi.useFakeTimers();
+  try {
+    render();
+    await click();
+    const status = container.querySelector('[data-testid="conversation-call-status"]')!;
+    expect(status.textContent).toBe("Connecting...");
+    act(() => boundary.events!.connected());
+    expect(status.textContent).toBe("Ready");
+    act(() => vi.advanceTimersByTime(1799));
+    expect(status.textContent).toBe("Ready");
+    act(() => vi.advanceTimersByTime(1));
+    expect(status.textContent).toBe("Original agent");
+    render("other");
+    expect(status.textContent).toBe("Original agent");
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test("Android keeps the active strip but ends silently with an idle composer", async () => {
@@ -333,7 +356,7 @@ test("Android keeps the active strip but ends silently with an idle composer", a
   await click();
   expect(phone().getAttribute("aria-label")).toBe("Cancel call");
   const host = container.querySelector('[data-testid="conversation-call-host"]')!;
-  expect(host.textContent).toContain("Original agent");
+  expect(host.textContent).toContain("Connecting...");
   expect(host.querySelector('[aria-label="Mute microphone"]')).not.toBeNull();
   await click();
   expect(boundary.stop).toHaveBeenCalledTimes(1);

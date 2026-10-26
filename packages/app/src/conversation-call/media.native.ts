@@ -26,6 +26,7 @@ interface NativeCallService {
   activeId(): string | null;
   endedReason(id: string): string | null;
   startAudio(id: string): void;
+  readyCue(id: string): void;
   acquire(id: string): Promise<StreamInfo>;
   ownPeer(id: string, peerId: number): void;
   addListener(
@@ -141,7 +142,6 @@ export function createCallMedia(events: MediaEvents, identity: CallIdentity): Ca
             try {
               // Explicit app-maintained WebRTC extension; never reflect into its track registry.
               service.ownPeer(callId, peer.nativePeerConnectionId);
-              peer.createDataChannel("realtime-events");
               stream.getTracks().forEach((track) => peer.addTrack(track, stream));
               // Native WebRTC renders received audio directly; no DOM audio element.
               return peer;
@@ -152,6 +152,7 @@ export function createCallMedia(events: MediaEvents, identity: CallIdentity): Ca
           },
         };
       },
+      readyCue: () => service.readyCue(callId),
       startAudio: () => audio.start(),
       stopAudio: () => audio.stop(),
       setSpeaker: (enabled) => audio.setSpeaker(enabled),

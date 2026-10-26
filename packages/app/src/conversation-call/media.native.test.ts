@@ -25,6 +25,7 @@ vi.mock("expo-modules-core", () => ({
     start: hardware.serviceStart,
     stop: hardware.stop,
     startAudio: () => hardware.start({ media: "video", auto: true }),
+    readyCue() {},
     acquire: hardware.nativeAcquire,
     ownPeer: hardware.ownPeer,
     activeId: hardware.activeId,
@@ -69,7 +70,9 @@ vi.mock("react-native-webrtc", () => ({
     nativePeerConnectionId = 7;
     iceGatheringState = "complete";
     localDescription = { type: "offer", sdp: "native offer" };
-    createDataChannel() {}
+    createDataChannel() {
+      return { addEventListener() {} };
+    }
     addTrack() {}
     addEventListener() {}
     removeEventListener() {}

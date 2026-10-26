@@ -4,6 +4,8 @@ import android.Manifest
 import android.app.NotificationManager
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioManager
+import android.media.ToneGenerator
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import com.facebook.react.bridge.ReactApplicationContext
@@ -19,6 +21,18 @@ import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 
 class PaseoCallModule : Module() {
+  private val readyTone = CallReadyTone(
+    CallRuntime.owner,
+    { release -> CallRuntime.main.postDelayed(release, 250) },
+  ) {
+    // Use the existing communication route and user call volume; never take audio focus.
+    val tone = ToneGenerator(AudioManager.STREAM_VOICE_CALL, 25)
+    object : LocalReadyTone {
+      override fun play() { tone.startTone(ToneGenerator.TONE_PROP_BEEP, 90) }
+      override fun release() { tone.release() }
+    }
+  }
+
   override fun definition() = ModuleDefinition {
     Name("PaseoCall")
     Events("ended")
@@ -76,6 +90,9 @@ class PaseoCallModule : Module() {
       }
     }
 
+    Function("readyCue") { id: String ->
+      CallRuntime.main.post { readyTone.play(id) }
+    }
     Function("activeId") { CallRuntime.owner.activeId() }
     Function("endedReason") { id: String -> CallRuntime.owner.endedReason(id) }
     Function("stop") { id: String -> CallRuntime.owner.end(id, "ended") }

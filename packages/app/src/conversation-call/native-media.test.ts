@@ -12,7 +12,16 @@ function fixture() {
   };
   const calls: string[] = [];
   const listeners = new Map<string, () => void>();
+  const channelListeners = new Map<string, (event: { data: unknown }) => void>();
+  const channel = {
+    addEventListener(name: string, listener: (event: { data: unknown }) => void) {
+      channelListeners.set(name, listener);
+    },
+  };
   const peer = {
+    createDataChannel() {
+      return channel;
+    },
     connectionState: "new",
     iceGatheringState: "complete",
     localDescription: { type: "offer", sdp: "native offer" },
@@ -77,7 +86,17 @@ function fixture() {
     },
     playbackBlocked() {},
   });
-  return { media, dependencies, track, calls, microphone, peer, listeners, timers };
+  return {
+    media,
+    dependencies,
+    track,
+    calls,
+    microphone,
+    peer,
+    listeners,
+    timers,
+    channelListeners,
+  };
 }
 
 test("a call already stopped before offer cannot reserve the microphone or request permission", async () => {
@@ -125,6 +144,15 @@ test("native negotiation sends audio, applies answer, mutes tracks and releases 
   f.media.mute(true);
   expect(f.track.enabled).toBe(false);
   f.media.mute(false);
+  expect(f.track.enabled).toBe(false);
+  f.peer.connectionState = "connected";
+  f.listeners.get("connectionstatechange")?.();
+  expect(f.track.enabled).toBe(false);
+  expect(f.timers.has(95000)).toBe(true);
+  f.channelListeners.get("open")?.({ data: undefined });
+  f.channelListeners.get("message")?.({
+    data: '{"type":"session.started","session":{"status":"active"}}',
+  });
   expect(f.track.enabled).toBe(true);
   f.media.stop();
   f.media.stop();
@@ -135,6 +163,7 @@ test("native negotiation sends audio, applies answer, mutes tracks and releases 
     "peer",
     "local",
     "remote answer",
+    "connected",
     "close",
     "release",
     "unroute",
@@ -178,6 +207,11 @@ test("connection events reach the controller and no events survive stop", async 
   await f.media.offer();
   f.peer.connectionState = "connected";
   f.listeners.get("connectionstatechange")?.();
+  expect(f.calls).not.toContain("connected");
+  f.channelListeners.get("open")?.({ data: undefined });
+  f.channelListeners.get("message")?.({
+    data: '{"type":"session.started","session":{"status":"active"}}',
+  });
   expect(f.calls.at(-1)).toBe("connected");
   f.peer.connectionState = "failed";
   f.listeners.get("connectionstatechange")?.();
@@ -212,8 +246,14 @@ test("connection timeout is visible and is cancelled once connected", async () =
   expect(f.calls.at(-1)).toBe("Call connection timed out. Check the host and try again.");
   f.peer.connectionState = "connected";
   f.listeners.get("connectionstatechange")?.();
-  expect(f.timers.size).toBe(0);
+  f.channelListeners.get("open")?.({ data: undefined });
+  f.channelListeners.get("message")?.({
+    data: '{"type":"session.started","session":{"status":"active"}}',
+  });
+  expect(f.calls).not.toContain("connected");
+  expect(f.track.enabled).toBe(false);
   f.media.stop();
+  expect(f.timers.size).toBe(0);
 });
 
 test("microphone ownership is released even when permission is denied", async () => {
@@ -262,6 +302,103 @@ test("controller failure cleans native route, tracks, peer, timers and microphon
   expect(f.track.stopped).toBe(1);
   expect(f.timers.size).toBe(0);
   expect(released).toBe(true);
+});
+
+test("provider readiness before peer readiness preserves early mute and cues exactly once", async () => {
+  const f = fixture();
+  f.dependencies.requestPermission = async () => true;
+  f.dependencies.readyCue = () => {
+    f.calls.push("cue");
+  };
+  f.media.mute(true);
+  await f.media.offer();
+  expect(f.track.enabled).toBe(false);
+  f.channelListeners.get("message")?.({
+    data: '{"type":"session.started","session":{"status":"active"}}',
+  });
+  f.channelListeners.get("open")?.({ data: undefined });
+  expect(f.calls).not.toContain("connected");
+  f.peer.connectionState = "connected";
+  f.listeners.get("connectionstatechange")?.();
+  expect(f.track.enabled).toBe(false);
+  expect(f.calls.slice(-2)).toEqual(["connected", "cue"]);
+  f.listeners.get("connectionstatechange")?.();
+  f.channelListeners.get("message")?.({
+    data: '{"type":"session.started","session":{"status":"active"}}',
+  });
+  expect(f.calls.filter((call) => call === "cue")).toEqual(["cue"]);
+  expect(f.timers.size).toBe(0);
+  f.media.mute(false);
+  expect(f.track.enabled).toBe(true);
+  f.media.stop();
+});
+
+test("peer failure before provider readiness cannot be followed by a late cue or live microphone", async () => {
+  const f = fixture();
+  f.dependencies.requestPermission = async () => true;
+  f.dependencies.readyCue = () => {
+    f.calls.push("cue");
+  };
+  await f.media.offer();
+  f.peer.connectionState = "failed";
+  f.listeners.get("connectionstatechange")?.();
+  f.peer.connectionState = "connected";
+  f.listeners.get("connectionstatechange")?.();
+  f.channelListeners.get("open")?.({ data: undefined });
+  f.channelListeners.get("message")?.({
+    data: '{"type":"session.started","session":{"status":"active"}}',
+  });
+  expect(f.calls).not.toContain("connected");
+  expect(f.calls).not.toContain("cue");
+  expect(f.track.enabled).toBe(false);
+  f.media.stop();
+});
+
+test.each(["close", "error"])(
+  "a data channel %s during startup cannot announce ready",
+  async (event) => {
+    const f = fixture();
+    f.dependencies.requestPermission = async () => true;
+    f.dependencies.readyCue = () => {
+      f.calls.push("cue");
+    };
+    await f.media.offer();
+    f.channelListeners.get(event)?.({ data: undefined });
+    f.peer.connectionState = "connected";
+    f.listeners.get("connectionstatechange")?.();
+    f.channelListeners.get("open")?.({ data: undefined });
+    f.channelListeners.get("message")?.({
+      data: '{"type":"session.started","session":{"status":"active"}}',
+    });
+    expect(f.calls).not.toContain("connected");
+    expect(f.calls).not.toContain("cue");
+    expect(f.track.enabled).toBe(false);
+    f.media.stop();
+  },
+);
+
+test("a blocked local cue leaves the call ready and does not create a playback error", async () => {
+  const f = fixture();
+  f.dependencies.requestPermission = async () => true;
+  f.dependencies.readyCue = () => {
+    throw new Error("No local tone output");
+  };
+  await f.media.offer();
+  f.peer.connectionState = "connected";
+  f.listeners.get("connectionstatechange")?.();
+  f.channelListeners.get("open")?.({ data: undefined });
+  f.channelListeners.get("message")?.({
+    data: '{"type":"session.started","session":{"status":"active"}}',
+  });
+  expect(f.calls).toEqual(["route", "acquire", "peer", "local", "connected"]);
+  expect(f.track.enabled).toBe(true);
+  f.media.stop();
+});
+
+test("the startup deadline includes time waiting for microphone permission", async () => {
+  const f = fixture();
+  expect([...f.timers.keys()]).toEqual([95000]);
+  f.media.stop();
 });
 
 test("permission rejection is actionable and never acquires the microphone", async () => {

@@ -1,4 +1,10 @@
 import type { CallMedia, MediaEvents } from "./controller";
+import { CallReadiness } from "./readiness";
+
+interface ProviderChannel {
+  addEventListener(name: "open" | "close" | "error", listener: () => void): void;
+  addEventListener(name: "message", listener: (event: { data: unknown }) => void): void;
+}
 
 interface Description {
   type: string | null;
@@ -8,6 +14,7 @@ export interface NativePeer {
   connectionState: string;
   iceGatheringState: string;
   localDescription: Description | null;
+  createDataChannel(label: string): ProviderChannel;
   createOffer(): Promise<Description>;
   setLocalDescription(description: Description): Promise<void>;
   setRemoteDescription(description: Description): Promise<void>;
@@ -32,6 +39,7 @@ export interface NativeMediaDependencies {
   schedule(callback: () => void, ms: number): () => void;
   requestPermission(): Promise<boolean>;
   acquire(): Promise<NativeMicrophone>;
+  readyCue?(): void;
   startAudio(): void;
   stopAudio(): void;
   setSpeaker?(enabled: boolean): Promise<void>;
@@ -40,6 +48,9 @@ export interface NativeMediaDependencies {
 /** The hardware boundary is injected so cancellation can be tested without a phone. */
 export class NativeCallMedia implements CallMedia {
   private stopped = false;
+  private ready = false;
+  private muted = false;
+  private readonly readiness: CallReadiness;
   private routed = false;
   private cancelGather = () => {};
   private cancelDeadline = () => {};
@@ -49,10 +60,10 @@ export class NativeCallMedia implements CallMedia {
   private readonly connectionChanged = () => {
     if (this.stopped) return;
     if (this.peer?.connectionState === "connected") {
-      this.cancelDeadline();
-      this.events.connected();
+      this.readiness.peerConnected();
     }
     if (this.peer?.connectionState === "disconnected" || this.peer?.connectionState === "failed") {
+      this.readiness.stop();
       this.events.failed(
         "Audio connection lost. Pi may still be working; check its status before resending.",
       );
@@ -61,7 +72,30 @@ export class NativeCallMedia implements CallMedia {
   constructor(
     private readonly dependencies: NativeMediaDependencies,
     private readonly events: MediaEvents,
-  ) {}
+  ) {
+    this.readiness = new CallReadiness(
+      () => {
+        if (this.stopped) return;
+        this.ready = true;
+        this.cancelDeadline();
+        this.mute(this.muted);
+        this.events.connected();
+        if (!this.stopped) {
+          try {
+            this.dependencies.readyCue?.();
+          } catch {
+            /* Visual readiness is sufficient if audio is blocked. */
+          }
+        }
+      },
+      (message) => this.events.failed(message),
+    );
+    this.cancelDeadline = this.dependencies.schedule(() => {
+      if (this.stopped) return;
+      this.readiness.stop();
+      this.events.failed("Call connection timed out. Check the host and try again.");
+    }, 95000);
+  }
   async offer(): Promise<string> {
     if (this.stopped) throw new Error("Call ended");
     this.releaseMicrophone = this.dependencies.reserveMicrophone();
@@ -75,10 +109,6 @@ export class NativeCallMedia implements CallMedia {
       await this.dependencies.background.start();
       if (this.stopped) throw new Error("Call ended");
     }
-    this.cancelDeadline = this.dependencies.schedule(() => {
-      if (!this.stopped)
-        this.events.failed("Call connection timed out. Check the host and try again.");
-    }, 95000);
     this.routed = true;
     this.dependencies.startAudio();
     const microphone = await this.dependencies.acquire();
@@ -88,8 +118,14 @@ export class NativeCallMedia implements CallMedia {
       throw new Error("Call ended");
     }
     this.microphone = microphone;
+    this.mute(this.muted);
     const peer = this.microphone.openPeer();
     this.peer = peer;
+    const channel = peer.createDataChannel("realtime-events");
+    channel.addEventListener("open", () => this.readiness.channelOpened());
+    channel.addEventListener("message", (event) => this.readiness.message(event.data));
+    channel.addEventListener("close", () => this.readiness.channelClosed());
+    channel.addEventListener("error", () => this.readiness.channelError());
     peer.addEventListener("connectionstatechange", this.connectionChanged);
     await peer.setLocalDescription(await peer.createOffer());
     await this.gather(peer);
@@ -123,8 +159,9 @@ export class NativeCallMedia implements CallMedia {
     if (!this.stopped) await this.peer?.setRemoteDescription({ type: "answer", sdp });
   }
   mute(muted: boolean) {
+    this.muted = muted;
     this.microphone?.tracks.forEach((track) => {
-      track.enabled = !muted;
+      track.enabled = this.ready && !muted;
     });
   }
   async play() {
@@ -136,6 +173,7 @@ export class NativeCallMedia implements CallMedia {
   stop() {
     if (this.stopped) return;
     this.stopped = true;
+    this.readiness.stop();
     this.cancelGather();
     this.cancelDeadline();
     this.peer?.removeEventListener("connectionstatechange", this.connectionChanged);
