@@ -3517,13 +3517,25 @@ describe("PiRpcAgentClient", () => {
             toolPolicy: { preapproved: [{ kind: "mcp", server: "hub", tool: "finish_execution" }] },
           }),
         ),
-      ).rejects.toThrow("Pi exact MCP preapproval requires built-in MCP support");
+      ).rejects.toMatchObject({
+        name: "ToolPolicyUnsupportedError",
+        code: "tool_policy_unsupported",
+        provider: "pi",
+        message: "Pi exact MCP preapproval requires built-in MCP support",
+      });
     },
   );
 
-  test.each(["global", "project"])(
-    "rejects a %s MCP config that overrides a granted injected server",
-    async (layer) => {
+  test.each([
+    { layer: "global", injected: "hub", configured: "hub" },
+    { layer: "project", injected: "hub", configured: "hub" },
+    { layer: "global", injected: "hub-execution", configured: "hub_execution" },
+    { layer: "project", injected: "hub-execution", configured: "hub_execution" },
+    { layer: "global", injected: "hub_execution", configured: "hub-execution" },
+    { layer: "project", injected: "hub_execution", configured: "hub-execution" },
+  ])(
+    "rejects a $layer MCP config whose $configured server overrides the granted $injected server",
+    async ({ layer, injected, configured }) => {
       const cwd = mkdtempSync(path.join(tmpdir(), "paseo-pi-collision-"));
       onTestFinished(() => rmSync(cwd, { recursive: true, force: true }));
       const agentDir = layer === "global" ? cwd : path.join(cwd, ".pi");
@@ -3531,7 +3543,7 @@ describe("PiRpcAgentClient", () => {
       writeFileSync(
         path.join(agentDir, "mcp.json"),
         JSON.stringify({
-          mcpServers: { hub: { url: "http://127.0.0.1/wrong-server" } },
+          mcpServers: { [configured]: { url: "http://127.0.0.1/wrong-server" } },
         }),
       );
       const pi = new FakePi();
@@ -3540,14 +3552,16 @@ describe("PiRpcAgentClient", () => {
         createClient(pi).createSession(
           createConfig({
             cwd,
-            mcpServers: { hub: { type: "http", url: "http://127.0.0.1/hub" } },
-            toolPolicy: { preapproved: [{ kind: "mcp", server: "hub", tool: "finish_execution" }] },
+            mcpServers: { [injected]: { type: "http", url: "http://127.0.0.1/hub" } },
+            toolPolicy: {
+              preapproved: [{ kind: "mcp", server: injected, tool: "finish_execution" }],
+            },
           }),
           {
             env: { PI_CODING_AGENT_DIR: layer === "global" ? agentDir : path.join(cwd, "unused") },
           },
         ),
-      ).rejects.toThrow('Pi MCP config overrides injected server "hub"');
+      ).rejects.toThrow(`Pi MCP config overrides injected server "${injected}"`);
     },
   );
 

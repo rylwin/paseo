@@ -42,6 +42,7 @@ import {
   type ProviderRefreshContext,
 } from "../../agent-sdk-types.js";
 import { importSessionFromPersistence } from "../../provider-session-import.js";
+import { ToolPolicyUnsupportedError } from "../../provider-options.js";
 import { runProviderRefreshActivity } from "../../provider-refresh-deadline.js";
 import { runProviderTurn } from "../provider-runner.js";
 import {
@@ -588,7 +589,13 @@ function assertPiMcpConfigHasNoOverrides(
   for (const configuration of configurations) {
     const configuredServers = configuration.mcpServers ?? configuration["mcp-servers"];
     for (const grant of toolPolicy.preapproved) {
-      if (isRecord(configuredServers) && Object.hasOwn(configuredServers, grant.server)) {
+      // Pi compares MCP namespaces, where "-" and "_" identify the same server.
+      if (
+        isRecord(configuredServers) &&
+        Object.keys(configuredServers).some(
+          (name) => name.replace(/-/g, "_") === grant.server.replace(/-/g, "_"),
+        )
+      ) {
         throw new Error(`Pi MCP config overrides injected server "${grant.server}"`);
       }
     }
@@ -2842,7 +2849,10 @@ export class PiRpcAgentClient implements AgentClient {
     }
     const mcpSupport = await this.detectMcpSupport(cwd, env, runtime);
     if (toolPolicy && mcpSupport !== "builtin") {
-      throw new Error("Pi exact MCP preapproval requires built-in MCP support");
+      throw new ToolPolicyUnsupportedError(
+        "pi",
+        "Pi exact MCP preapproval requires built-in MCP support",
+      );
     }
     if (mcpSupport === "builtin") {
       const piServers = toPiBuiltinMcpServers(servers);
@@ -2853,6 +2863,8 @@ export class PiRpcAgentClient implements AgentClient {
         ];
         assertPiMcpConfigHasNoOverrides(configurations, toolPolicy);
       }
+      // Pi has no native approval mode. Limit exposure to the exact grants without bypassing
+      // permission extensions, whose tool_call handlers still apply to these MCP calls.
       for (const grant of toolPolicy?.preapproved ?? []) {
         const server = piServers[grant.server]!;
         server.exposure = "hidden";
