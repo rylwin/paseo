@@ -2,41 +2,63 @@
 
 ## Project identity
 
-Projects are allocated for the exact root selected by the caller, normalized lexically with `path.resolve` (never `realpath`). New project IDs are opaque `prj_<16 hex>` values. Existing remote-shaped or path-shaped IDs are retained as readable compatibility records and are never rekeyed. An active exact root is idempotent; archived-only matches do not resurrect an old project. Workspace `projectId` is stable membership: reconciliation may update git-derived kind and branch metadata, but never rehomes a workspace or changes a project's root, ID, or default name.
+Projects are allocated for the exact root selected by the caller, normalized
+lexically with `path.resolve` (never `realpath`). New project IDs are opaque
+`prj_<16 hex>` values. Existing remote-shaped or path-shaped IDs are retained as
+readable compatibility records and are never rekeyed. An active exact root is
+idempotent; archived-only matches do not resurrect an old project. Workspace
+`projectId` is stable membership: reconciliation may update git-derived kind and
+branch metadata, but never rehomes a workspace or changes a project's root, ID,
+or default name.
 
-`projectKey` is a persisted, opaque equivalence key used only to group the same logical project
-across hosts. It is separate from the host-local `projectId`; today's producer prefers a normalized
-Git remote and otherwise uses the local project root. Consumers never derive it from live Git.
-Creation persists it with the project, and normal boot reconciliation fills it for
-older records where the field is absent—there is no migration.
+`projectKey` is a persisted, opaque equivalence key used only to group the same
+logical project across hosts. It is separate from the host-local `projectId`;
+today's producer prefers a normalized Git remote and otherwise uses the local
+project root. Consumers never derive it from live Git. Creation persists it with
+the project, and normal boot reconciliation fills it for older records where the
+field is absent—there is no migration.
 
-`kind` and `projectKey` are mutable metadata, not identity. Workspace reconciliation watches active project roots and
-updates those fields and `updatedAt` when Git facts change, preserving the project's ID, root path,
-names, and workspace foreign keys. Attached workspaces are independently refreshed
-from their own cwd, so an explicit project root never implies a workspace checkout. Empty projects
-are observed too.
+`kind` and `projectKey` are mutable metadata, not identity. Workspace
+reconciliation watches active project roots and updates those fields and
+`updatedAt` when Git facts change, preserving the project's ID, root path,
+names, and workspace foreign keys. Attached workspaces are independently
+refreshed from their own cwd, so an explicit project root never implies a
+workspace checkout. Empty projects are observed too.
 
-The workspace registry model defines placement once: initial directory/worktree construction,
-mutable reconciliation fields, and the persisted-to-wire checkout projection. Its update policy
-preserves `displayName` and `baseBranch`. `WorkspaceProvisioningService` owns the corresponding
-registry writes, so directory opens, agent imports, and worktree creation all enter through that
-service instead of constructing records independently. The workspace record is then the durable
-placement authority: `cwd` is the exact execution directory, while `worktreeRoot` is the backing
-checkout root. They intentionally differ for an exact subproject inside a worktree. Archive,
-restore, branch auto-name, and descriptor flows consume those persisted facts rather than
-rediscovering ownership from a directory that may already be gone. Reconciliation may refresh
-mutable placement facts, but never changes `projectId`, `cwd`, `displayName`, or `baseBranch`.
-Workspace archive runs lifecycle teardown from the exact `cwd` but removes only the backing
-`worktreeRoot` after its last active reference disappears. Worktree recovery recreates that backing
-checkout from `mainRepoRoot`, then restores the relative path from `worktreeRoot` to `cwd`.
+The workspace registry model defines placement once: initial directory/worktree
+construction, mutable reconciliation fields, and the persisted-to-wire checkout
+projection. Its update policy preserves `displayName` and `baseBranch`.
+`WorkspaceProvisioningService` owns the corresponding registry writes, so
+directory opens, agent imports, and worktree creation all enter through that
+service instead of constructing records independently. The workspace record is
+then the durable placement authority: `cwd` is the exact execution directory,
+while `worktreeRoot` is the backing checkout root. They intentionally differ for
+an exact subproject inside a worktree. Archive, restore, branch auto-name, and
+descriptor flows consume those persisted facts rather than rediscovering
+ownership from a directory that may already be gone. Reconciliation may refresh
+mutable placement facts, but never changes `projectId`, `cwd`, `displayName`, or
+`baseBranch`. Workspace archive runs lifecycle teardown from the exact `cwd` but
+removes only the backing `worktreeRoot` after its last active reference
+disappears. Worktree recovery recreates that backing checkout from
+`mainRepoRoot`, then restores the relative path from `worktreeRoot` to `cwd`.
 
-Paseo uses **file-based JSON persistence** instead of a traditional database. All data is validated at runtime with Zod schemas. Most stores write atomically (write to temp file, then rename); a few still use plain `writeFile` — see each section. There is no schema-versioning/migration framework — schemas rely on optional fields with defaults for forward compatibility, with a small amount of inline normalization in `persisted-config.ts` for legacy provider/speech entries.
+Paseo uses **file-based JSON persistence** instead of a traditional database.
+All data is validated at runtime with Zod schemas. Most stores write atomically
+(write to temp file, then rename); a few still use plain `writeFile` — see each
+section. There is no schema-versioning/migration framework — schemas rely on
+optional fields with defaults for forward compatibility, with a small amount of
+inline normalization in `persisted-config.ts` for legacy provider/speech
+entries.
 
 All server-side stores live under `$PASEO_HOME` (defaults to `~/.paseo`).
 
 ## Store Surface Rules
 
-Store APIs own persistence atomicity and should not make services coordinate raw reads and writes. A good store method maps cleanly to one SQL statement or one SQL transaction, even when the current implementation is JSON files. If a caller needs a queue, lock, read-merge-write loop, or uniqueness race workaround, that behavior belongs behind the store surface.
+Store APIs own persistence atomicity and should not make services coordinate raw
+reads and writes. A good store method maps cleanly to one SQL statement or one
+SQL transaction, even when the current implementation is JSON files. If a caller
+needs a queue, lock, read-merge-write loop, or uniqueness race workaround, that
+behavior belongs behind the store surface.
 
 ---
 
@@ -70,7 +92,11 @@ $PASEO_HOME/
 └── push-tokens.json                     # Expo push notification tokens
 ```
 
-The `agents/{sanitized-cwd}/` directory name is derived from the agent's `cwd` by stripping the filesystem root and replacing path separators with `-` (Windows drive letters become a `C-` style prefix). Persistent server stores write atomically by writing a temp file in the target directory and then renaming it into place.
+The `agents/{sanitized-cwd}/` directory name is derived from the agent's `cwd`
+by stripping the filesystem root and replacing path separators with `-` (Windows
+drive letters become a `C-` style prefix). Persistent server stores write
+atomically by writing a temp file in the target directory and then renaming it
+into place.
 
 ---
 
@@ -169,9 +195,16 @@ Each agent is stored as a separate JSON file, grouped by project directory.
 
 ## Runtime-only Terminal Sessions
 
-Terminals are live daemon state, not persisted JSON records. A terminal carries a `workspaceId` while it is running; workspace-scoped terminal lists include only terminals with the matching `workspaceId`. Legacy live terminals without an owner remain visible to unscoped terminal reads but contribute to no workspace status.
+Terminals are live daemon state, not persisted JSON records. A terminal carries
+a `workspaceId` while it is running; workspace-scoped terminal lists include
+only terminals with the matching `workspaceId`. Legacy live terminals without an
+owner remain visible to unscoped terminal reads but contribute to no workspace
+status.
 
-Terminal activity contributes to the workspace status bucket **per `workspaceId`**: a working terminal drives `running` onto the workspace it carries only. Same-`cwd` siblings are untouched; terminal visibility is likewise `workspaceId`-scoped.
+Terminal activity contributes to the workspace status bucket **per
+`workspaceId`**: a working terminal drives `running` onto the workspace it
+carries only. Same-`cwd` siblings are untouched; terminal visibility is likewise
+`workspaceId`-scoped.
 
 ---
 
@@ -181,18 +214,22 @@ Terminal activity contributes to the workspace status bucket **per `workspaceId`
 
 Single file, validated with `PersistedConfigSchema`.
 
-`agents.skills.selection` is the daemon host's orchestration-skill preference. Missing means
-`{ mode: "all" }`. Installed state is not persisted; the daemon derives it from the shared
-`~/.agents/skills` and Claude skill directories and keeps config plus filesystem convergence behind
-one serialized owner. Codex discovers the shared directory. Updates retire unchanged files from
-Paseo-managed copies in `~/.codex/skills`, preserving user edits and untracked files.
+`agents.skills.selection` is the daemon host's orchestration-skill preference.
+Missing means `{ mode: "all" }`. Installed state is not persisted; the daemon
+derives it from the shared `~/.agents/skills` and Claude skill directories and
+keeps config plus filesystem convergence behind one serialized owner. Codex
+discovers the shared directory. Updates retire unchanged files from
+Paseo-managed copies in `~/.codex/skills`, preserving user edits and untracked
+files.
 
-`paseo reload` reads and validates this file once inside the daemon. That snapshot drives resolution,
-classification, application, and reload bookkeeping. `DaemonConfigStore` owns applying runtime-safe
-fields and their removal/default semantics; session handlers and the CLI only relay the structured
-result. Normal config patches persist only the requested fields, so launch overrides and resolved
-defaults never leak into the file. Startup-only fields remain compared with the daemon's launch
-snapshot so a mixed edit can apply its live subset and still name the paths that require restart.
+`paseo reload` reads and validates this file once inside the daemon. That
+snapshot drives resolution, classification, application, and reload bookkeeping.
+`DaemonConfigStore` owns applying runtime-safe fields and their removal/default
+semantics; session handlers and the CLI only relay the structured result. Normal
+config patches persist only the requested fields, so launch overrides and
+resolved defaults never leak into the file. Startup-only fields remain compared
+with the daemon's launch snapshot so a mixed edit can apply its live subset and
+still name the paths that require restart.
 
 ```
 {
@@ -221,12 +258,6 @@ snapshot so a mixed edit can apply its live subset and still name the paths that
     }
   },
   providers: {
-    openai: {
-      apiKey?: string,
-      baseUrl?: string,
-      stt?: { apiKey?: string, baseUrl?: string },
-      tts?: { apiKey?: string, baseUrl?: string }
-    },
     local: { modelsDir: string }
   },
   agents: {
@@ -244,8 +275,8 @@ snapshot so a mixed edit can apply its live subset and still name the paths that
   pluginsEnabled: boolean,
   plugins: Record<pluginId, { source: "directory", path: string, enabled?: boolean }>,
   features: {
-    dictation: { enabled, stt: { provider, model, language, confidenceThreshold } },
-    voiceMode: { enabled, llm, stt: { provider, model, language }, turnDetection, tts: { provider, model, voice, speakerId, speed } }
+    dictation: { enabled, stt: SpeechSttConfig },
+    voiceMode: { enabled, llm, stt: SpeechSttConfig, turnDetection, tts: SpeechTtsConfig }
   },
   log: {
     level, format,
@@ -257,34 +288,38 @@ snapshot so a mixed edit can apply its live subset and still name the paths that
 
 All fields are optional with sensible defaults.
 
-Managed plugins appear as directory sources in `config.json`; it owns the active path and enabled
-state. `plugins/sources.json` is written atomically and stores only managed kind and the Git acquisition
-remote. Installed revision, package/subdirectory identity and ownership root come from retained
-artifacts and the fixed managed layout; [managed source ownership](plugins.md#managed-source-ownership)
-explains their authority. An update prepares a new directory before replacing the active path and
-removing the previous version. Old record fields are accepted at the store boundary and ignored;
-there is no startup migration or persistent update policy.
+Managed plugins appear as directory sources in `config.json`; it owns the active
+path and enabled state. `plugins/sources.json` is written atomically and stores
+only managed kind and the Git acquisition remote. Installed revision,
+package/subdirectory identity and ownership root come from retained artifacts
+and the fixed managed layout;
+[managed source ownership](plugins.md#managed-source-ownership) explains their
+authority. An update prepares a new directory before replacing the active path
+and removing the previous version. Old record fields are accepted at the store
+boundary and ignored; there is no startup migration or persistent update policy.
 
 ### Profile lists
 
-`terminalProfiles` and `agentProfiles` are both whole-list fields: a config patch replaces the
-array, never merges entries, so a client sends the complete next list on every add, edit, reorder
-and remove. List order is the display order.
+`terminalProfiles` and `agentProfiles` are both whole-list fields: a config
+patch replaces the array, never merges entries, so a client sends the complete
+next list on every add, edit, reorder and remove. List order is the display
+order.
 
-Absent and empty mean different things for terminal profiles — omitting the key falls back to
-`DEFAULT_TERMINAL_PROFILES`, while `[]` means the user removed them all. Agent profiles have no
-defaults, so both mean none.
+Absent and empty mean different things for terminal profiles — omitting the key
+falls back to `DEFAULT_TERMINAL_PROFILES`, while `[]` means the user removed
+them all. Agent profiles have no defaults, so both mean none.
 
-`PersistedConfigSchema` parses strictly, so a daemon that predates a field drops it on write
-rather than storing something it cannot describe. That is why the client gates the agent profiles
-UI on `server_info.features.agentProfiles` instead of letting a save appear to succeed against an
-older daemon.
+`PersistedConfigSchema` parses strictly, so a daemon that predates a field drops
+it on write rather than storing something it cannot describe. That is why the
+client gates the agent profiles UI on `server_info.features.agentProfiles`
+instead of letting a save appear to succeed against an older daemon.
 
 ### Agent provider Paseo tools
 
-`agents.providers` is keyed by the exact provider ID used to launch the agent. The built-in IDs are
-`claude`, `codex`, `copilot`, `opencode`, `pi`, and `omp`. Custom provider IDs are their literal
-configuration keys, such as `my-claude` or `zai`, not the provider named by `extends`.
+`agents.providers` is keyed by the exact provider ID used to launch the agent.
+The built-in IDs are `claude`, `codex`, `copilot`, `opencode`, `pi`, and `omp`.
+Custom provider IDs are their literal configuration keys, such as `my-claude` or
+`zai`, not the provider named by `extends`.
 
 Each entry may include a Paseo-tool policy:
 
@@ -305,24 +340,30 @@ Each entry may include a Paseo-tool policy:
 }
 ```
 
-Absent `paseoTools`, or absent fields within it, means Paseo tools are enabled and all tools are
-allowed. `enabled: false` disables the provider's Paseo catalog; `disabledTools` lists exact tool
-IDs to omit. The policy covers the core and browser catalog, not the voice-only `speak` tool.
-Browser tools also require `daemon.browserTools.enabled` and a connected browser host.
-This policy controls the catalog presented to an agent. It is not an authorization boundary for
-agents that can access the host through a shell.
+Absent `paseoTools`, or absent fields within it, means Paseo tools are enabled
+and all tools are allowed. `enabled: false` disables the provider's Paseo
+catalog; `disabledTools` lists exact tool IDs to omit. The policy covers the
+core and browser catalog, not the voice-only `speak` tool. Browser tools also
+require `daemon.browserTools.enabled` and a connected browser host. This policy
+controls the catalog presented to an agent. It is not an authorization boundary
+for agents that can access the host through a shell.
 
-`daemon.mcp.injectIntoAgents` is the global override. When it is `false`, no provider receives
-Paseo tools; otherwise the provider policy applies. Provider and global policy are resolved when a
-session is created, resumed, imported, or reloaded, so configuration changes affect the next
-session rather than an already-running one.
+`daemon.mcp.injectIntoAgents` is the global override. When it is `false`, no
+provider receives Paseo tools; otherwise the provider policy applies. Provider
+and global policy are resolved when a session is created, resumed, imported, or
+reloaded, so configuration changes affect the next session rather than an
+already-running one.
 
-`agents.metadataGeneration.providers` selects the models for daemon-side metadata tasks: commit messages, PR text, branch names, and generated titles. An empty list is Automatic; a non-empty list is Manual and only those models are tried. See [public-docs/metadata-generation.md](../public-docs/metadata-generation.md#how-a-model-is-chosen).
+`agents.metadataGeneration.providers` selects the models for daemon-side
+metadata tasks: commit messages, PR text, branch names, and generated titles. An
+empty list is Automatic; a non-empty list is Manual and only those models are
+tried. See
+[public-docs/metadata-generation.md](../public-docs/metadata-generation.md#how-a-model-is-chosen).
 
 ### Git process limits
 
-Git process limits are global to one daemon. The start-rate limit defaults to `64` processes per
-second, and the concurrency limit defaults to `8`:
+Git process limits are global to one daemon. The start-rate limit defaults to
+`64` processes per second, and the concurrency limit defaults to `8`:
 
 ```json
 {
@@ -335,10 +376,11 @@ second, and the concurrency limit defaults to `8`:
 }
 ```
 
-`maxProcessesPerSecond` limits Git process starts in any one-second interval. The allowance can
-start as a burst; it does not wait for earlier processes to exit. `maxProcessConcurrency` limits
-the number of Git processes that have started but not exited. Every Git command uses both limits,
-including initial workspace reads, filesystem-triggered refreshes, background checks, and explicit
+`maxProcessesPerSecond` limits Git process starts in any one-second interval.
+The allowance can start as a burst; it does not wait for earlier processes to
+exit. `maxProcessConcurrency` limits the number of Git processes that have
+started but not exited. Every Git command uses both limits, including initial
+workspace reads, filesystem-triggered refreshes, background checks, and explicit
 requests.
 
 Environment variables override `config.json`:
@@ -349,46 +391,34 @@ Environment variables override `config.json`:
 | `PASEO_GIT_MAX_PROCESS_CONCURRENCY`  | `maxProcessConcurrency`  |
 | `PASEO_GIT_CONCURRENCY`              | Legacy concurrency alias |
 
-`PASEO_GIT_MAX_PROCESS_CONCURRENCY` wins when it and the legacy alias are both set. Run `paseo reload`
-after changing `config.json`. Environment changes require a daemon restart; the launch environment
-remains authoritative during reload.
+`PASEO_GIT_MAX_PROCESS_CONCURRENCY` wins when it and the legacy alias are both
+set. Run `paseo reload` after changing `config.json`. Environment changes
+require a daemon restart; the launch environment remains authoritative during
+reload.
 
-Local speech model ids are intentionally narrow: STT uses `parakeet-tdt-0.6b-v2-int8`, TTS uses `kokoro-en-v0_19`, and turn detection uses the bundled Silero VAD model.
+### Speech configuration
 
-Set these to select OpenAI instead of local speech:
+Each use site owns its provider settings: `features.dictation.stt`,
+`features.voiceMode.stt`, and `features.voiceMode.tts`. `provider` selects a
+strict `local` or `openai` variant. Both STT variants carry `language`;
+normalization preserves it regardless of provider. `providers.local.modelsDir`
+remains shared storage. See [Voice configuration](../public-docs/voice.md) for
+fields, examples and env precedence.
 
-| Env var                        | Applies to                      |
-| ------------------------------ | ------------------------------- |
-| `PASEO_VOICE_STT_PROVIDER`     | Voice mode STT provider         |
-| `PASEO_DICTATION_STT_PROVIDER` | Composer dictation STT provider |
-| `PASEO_VOICE_TTS_PROVIDER`     | Voice mode TTS provider         |
+On load, `persisted-config.ts` folds legacy `providers.openai` credentials and
+URLs into OpenAI sites that lack their own values, using endpoint settings
+before shared settings. A provider-less site becomes local; provider names are
+lower-cased, and fields ignored by the selected speech provider are discarded.
+The next save writes only the inline shape. A legacy key with no site to receive
+it is discarded with a warning that names its path, without logging its value.
 
-OpenAI speech can be configured under `providers.openai`. STT and TTS resolve independently, so they can point at different endpoints:
-
-```json
-{
-  "providers": {
-    "openai": {
-      "stt": {
-        "apiKey": "sk-...",
-        "baseUrl": "https://stt.example.com/v1"
-      },
-      "tts": {
-        "apiKey": "sk-...",
-        "baseUrl": "https://api.openai.com/v1"
-      }
-    }
-  }
-}
-```
-
-`providers.openai.stt` is used for both composer dictation and voice mode speech-to-text; `providers.openai.tts` is used for voice mode text-to-speech. The equivalent env vars are `OPENAI_STT_API_KEY`/`OPENAI_STT_BASE_URL` and `OPENAI_TTS_API_KEY`/`OPENAI_TTS_BASE_URL`. Each feature falls back to `providers.openai.apiKey`/`providers.openai.baseUrl`, then `OPENAI_API_KEY`/`OPENAI_BASE_URL`, when its own fields are unset. These settings apply only to Paseo OpenAI speech features, not to Codex or other OpenAI-backed tools.
-
-Paseo uses these paths under the configured OpenAI base URL:
-
-- dictation STT: `/v1/audio/transcriptions`
-- voice mode STT: `/v1/audio/transcriptions`
-- voice mode TTS: `/v1/audio/speech`
+`speech-settings.ts` owns mutable config reads and patches. The wire uses the
+same `features` structure. Reads replace OpenAI keys with `hasApiKey` (saved in
+config) and report effective env sources in `envOverrides`. A site patch that
+changes `provider` replaces the entire object. The same or omitted `provider`
+merges fields into the current variant, preserving the write-only key when a
+form re-saves it. `null` clears a value. Switching providers discards
+credentials and options from the previous variant.
 
 ---
 
@@ -417,13 +447,16 @@ One file per schedule. ID is 8 hex characters.
 
 ### Nested: ScheduleCadence (discriminated union on `type`)
 
-- `{ type: "cron", expression: string, timezone?: string }` — canonical cadence for new writes; absent `timezone` means UTC
-- `{ type: "every", everyMs: number }` — legacy rolling interval, still readable and executable during the compatibility window
+- `{ type: "cron", expression: string, timezone?: string }` — canonical cadence
+  for new writes; absent `timezone` means UTC
+- `{ type: "every", everyMs: number }` — legacy rolling interval, still readable
+  and executable during the compatibility window
 
 ### Nested: ScheduleTarget (discriminated union on `type`)
 
 - `{ type: "agent", agentId: string }` — send to existing agent
-- `{ type: "new-agent", config: { provider, cwd, modeId?, model?, thinkingOptionId?, title?, providerOptions?, featureValues?, systemPrompt?, mcpServers? } }` — create a new agent
+- `{ type: "new-agent", config: { provider, cwd, modeId?, model?, thinkingOptionId?, title?, providerOptions?, featureValues?, systemPrompt?, mcpServers? } }`
+  — create a new agent
 
 ### Nested: ScheduleRun
 
@@ -459,19 +492,21 @@ Array of project records.
 | `updatedAt`          | `string` (ISO 8601)         |                                                                                                                                            |
 | `archivedAt`         | `string \| null` (ISO 8601) | Soft-delete timestamp; required nullable                                                                                                   |
 
-Uploading a file and pasting a website or image URL are two ways of _acquiring_ the same custom
-icon. The client fetches URL imports and sends their bytes through the upload RPC. The daemon never
-receives or fetches the URL; it validates the uploaded bytes, stores them, and records a new
-`customIconRevision`. Going back to automatic deletes the stored image, as does removing the
-project.
+Uploading a file and pasting a website or image URL are two ways of _acquiring_
+the same custom icon. The client fetches URL imports and sends their bytes
+through the upload RPC. The daemon never receives or fetches the URL; it
+validates the uploaded bytes, stores them, and records a new
+`customIconRevision`. Going back to automatic deletes the stored image, as does
+removing the project.
 
-Active exact roots are idempotent using lexical platform-equivalence semantics. Existing legacy
-remote-shaped and path-shaped IDs remain readable, including duplicate roots; reconciliation never
-merges them, transfers names, archives them, or moves workspace foreign keys. An explicit
-workspace `projectId` is authoritative when it names an active project, regardless of cwd
-containment. Archived-only exact-root records are not resurrected by explicit add/open; a fresh
-opaque project is allocated instead. Agent restore is separate and restores the agent's existing
-workspace together with its owning project.
+Active exact roots are idempotent using lexical platform-equivalence semantics.
+Existing legacy remote-shaped and path-shaped IDs remain readable, including
+duplicate roots; reconciliation never merges them, transfers names, archives
+them, or moves workspace foreign keys. An explicit workspace `projectId` is
+authoritative when it names an active project, regardless of cwd containment.
+Archived-only exact-root records are not resurrected by explicit add/open; a
+fresh opaque project is allocated instead. Agent restore is separate and
+restores the agent's existing workspace together with its owning project.
 
 ---
 
@@ -479,7 +514,8 @@ workspace together with its owning project.
 
 **Path:** `$PASEO_HOME/projects/workspaces.json`
 
-Array of workspace records. A workspace is a specific working directory within a project.
+Array of workspace records. A workspace is a specific working directory within a
+project.
 
 | Field                          | Type                                                         | Description                                                                                                                                                                                   |
 | ------------------------------ | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -502,36 +538,46 @@ Array of workspace records. A workspace is a specific working directory within a
 | `pinnedAt`                     | `string \| null` (ISO 8601)                                  | Pinned-to-top-of-sidebar timestamp; null means "not pinned"                                                                                                                                   |
 | `untrustedSource`              | `{ kind: "change_request", forge, number, headRepository }?` | Provenance captured when a cross-repository change request creates the workspace. Missing means repository automation is allowed; explicit setup removes the field.                           |
 
-> **Opaque-ID invariant:** `workspaceId` is opaque identity, never a filesystem path. Filesystem and git operations take `cwd`/`workspaceDirectory` only — never the id. A compatibility-only first-materialization bootstrap still groups pre-registry agent records by path and Git remote so existing installs retain their legacy records. That grouping never runs against a live registry, and its keys are not runtime project or workspace identity.
+> **Opaque-ID invariant:** `workspaceId` is opaque identity, never a filesystem
+> path. Filesystem and git operations take `cwd`/`workspaceDirectory` only —
+> never the id. A compatibility-only first-materialization bootstrap still
+> groups pre-registry agent records by path and Git remote so existing installs
+> retain their legacy records. That grouping never runs against a live registry,
+> and its keys are not runtime project or workspace identity.
 
 ### Workspace label catalog
 
 **Path:** `$PASEO_HOME/projects/workspace-labels.json`
 
-The catalog is shared by every workspace on one host. A definition contains a display name and one
-of the ten identity colour names (`WORKSPACE_LABEL_COLORS` in
-`packages/protocol/src/workspace-labels.ts`); trimmed, collapsed, case-insensitive name identity is
-unique within that file. Definitions have no portable ID or principal owner and remain after their
-last assignment. Editing a label takes a new name, a new colour, or both in one commit, so the two
-fields cannot land half-applied. Workspaces store label names, so a rename and a delete rewrite
-workspace assignments through one serialized compound commit while a recolour is catalog-only; a
-rename onto a name the host already has is refused rather than merged. A prepared
-`workspace-labels.transaction.json` contains both before and after images. The daemon writes the
-catalog and workspace files, then atomically changes the transaction to committed; that phase
-change is the durable commit point. Recovery rolls prepared transactions back before either
-directory is served. A committed marker proves both data files were already written, so recovery
-only loads the current catalog and retries marker cleanup; it never reapplies stale workspace
-after-images over later registry mutations. A request rejected before the commit point therefore
-cannot take effect after restart. If the live daemon cannot determine or restore the durable state,
-the workspace registry freezes every write and later label mutations fail with
-`workspace_label_storage_uncertain` until daemon restart performs recovery. Reads remain available,
-but may reflect the last acknowledged cache until restart. Workspace directory and catalog updates
-publish only after the commit point; publication failure does not roll durable state back.
+The catalog is shared by every workspace on one host. A definition contains a
+display name and one of the ten identity colour names (`WORKSPACE_LABEL_COLORS`
+in `packages/protocol/src/workspace-labels.ts`); trimmed, collapsed,
+case-insensitive name identity is unique within that file. Definitions have no
+portable ID or principal owner and remain after their last assignment. Editing a
+label takes a new name, a new colour, or both in one commit, so the two fields
+cannot land half-applied. Workspaces store label names, so a rename and a delete
+rewrite workspace assignments through one serialized compound commit while a
+recolour is catalog-only; a rename onto a name the host already has is refused
+rather than merged. A prepared `workspace-labels.transaction.json` contains both
+before and after images. The daemon writes the catalog and workspace files, then
+atomically changes the transaction to committed; that phase change is the
+durable commit point. Recovery rolls prepared transactions back before either
+directory is served. A committed marker proves both data files were already
+written, so recovery only loads the current catalog and retries marker cleanup;
+it never reapplies stale workspace after-images over later registry mutations. A
+request rejected before the commit point therefore cannot take effect after
+restart. If the live daemon cannot determine or restore the durable state, the
+workspace registry freezes every write and later label mutations fail with
+`workspace_label_storage_uncertain` until daemon restart performs recovery.
+Reads remain available, but may reflect the last acknowledged cache until
+restart. Workspace directory and catalog updates publish only after the commit
+point; publication failure does not roll durable state back.
 
-`projectId` is still a real FK: workspace records should have a matching project record. Read-only
-history surfaces tolerate transient orphaned workspaces by omitting those rows so one bad FK cannot
-blank the whole History screen, but mutation paths should repair or remove the orphaned state rather
-than treating it as valid.
+`projectId` is still a real FK: workspace records should have a matching project
+record. Read-only history surfaces tolerate transient orphaned workspaces by
+omitting those rows so one bad FK cannot blank the whole History screen, but
+mutation paths should repair or remove the orphaned state rather than treating
+it as valid.
 
 ---
 
@@ -545,13 +591,15 @@ than treating it as valid.
 }
 ```
 
-Simple set of Expo push notification tokens. Loaded with permissive parsing (filters non-string entries). Persisted with atomic temp-file rename.
+Simple set of Expo push notification tokens. Loaded with permissive parsing
+(filters non-string entries). Persisted with atomic temp-file rename.
 
 ---
 
 ## 7. Daemon meta files
 
-These small files are not validated as full Zod schemas but are persisted under `$PASEO_HOME` for daemon identity and runtime coordination.
+These small files are not validated as full Zod schemas but are persisted under
+`$PASEO_HOME` for daemon identity and runtime coordination.
 
 | Path                  | Format                                                         | Notes                                                                             |
 | --------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------------- |
@@ -565,37 +613,54 @@ These small files are not validated as full Zod schemas but are persisted under 
 
 ## Client-side stores (App)
 
-These live in React Native `AsyncStorage` or browser `IndexedDB`, not on the daemon filesystem.
+These live in React Native `AsyncStorage` or browser `IndexedDB`, not on the
+daemon filesystem.
 
 ### Keying convention: directory-backed vs workspace-owned
 
-Right-sidebar client state splits on whether it is determined by the directory or owned by the workspace (two workspaces can share one `cwd`). The split is enforced by the cache key, so changing a key changes the sharing semantics — see [architecture.md](architecture.md#right-sidebar-boundary-directory-backed-vs-workspace-owned) for the full table.
+Right-sidebar client state splits on whether it is determined by the directory
+or owned by the workspace (two workspaces can share one `cwd`). The split is
+enforced by the cache key, so changing a key changes the sharing semantics — see
+[architecture.md](architecture.md#right-sidebar-boundary-directory-backed-vs-workspace-owned)
+for the full table.
 
-- **Directory-backed** (shared by same-`cwd` workspaces): keyed by `(serverId, cwd)`. Git status/diff, GitHub PR status, PR timeline, file preview content. These are TanStack Query caches, not persisted stores.
-- **Workspace-owned** (independent per workspace): keyed by `workspaceId`, with `cwd` used only as a fallback when no `workspaceId` is present. Review draft comments (`@paseo:review-draft-store`), diff-mode overrides (in-memory), workspace composer attachments, and file-explorer nav/expand state. The `workspaceId` part of these keys is **opaque** — never parse it back into a path.
+- **Directory-backed** (shared by same-`cwd` workspaces): keyed by
+  `(serverId, cwd)`. Git status/diff, GitHub PR status, PR timeline, file
+  preview content. These are TanStack Query caches, not persisted stores.
+- **Workspace-owned** (independent per workspace): keyed by `workspaceId`, with
+  `cwd` used only as a fallback when no `workspaceId` is present. Review draft
+  comments (`@paseo:review-draft-store`), diff-mode overrides (in-memory),
+  workspace composer attachments, and file-explorer nav/expand state. The
+  `workspaceId` part of these keys is **opaque** — never parse it back into a
+  path.
 
 ### Replica row store
 
-The durable client replica uses IndexedDB on browser/Electron and expo-sqlite on native. Rows use the
-compound key `(serverId, kind, id)`; kinds are `agent`, `workspace`, `project`, `timeline`, and
-`checkpoint`. Directory entities have individual rows, timelines use the agent id, and the checkpoint
-uses the singleton id.
+The durable client replica uses IndexedDB on browser/Electron and expo-sqlite on
+native. Rows use the compound key `(serverId, kind, id)`; kinds are `agent`,
+`workspace`, `project`, `timeline`, and `checkpoint`. Directory entities have
+individual rows, timelines use the agent id, and the checkpoint uses the
+singleton id.
 
-The store is a typed persistence boundary. It returns values to directory and timeline owners and
-accepts their explicit commits; it never reads or writes UI state. Reads are scoped to the requested
-host, kinds, and ids. Opening a cached workspace uses exact workspace and project keys rather than a
-directory scan. One invalid row is deleted and returned as a miss without affecting other rows.
-An invalid directory row and its affected checkpoint cursor are repaired in one transaction, so a
-later launch cannot accept a checkpoint for a partial baseline. Directory changes and their
-checkpoint are also applied in one transaction. Reads wait for accepted changes to reach storage,
-then retry only when a requested row changes during the read. Unrelated agent streams do not
-invalidate the read. Directory baseline replacements and host removal or renaming still invalidate
-the affected reads.
+The store is a typed persistence boundary. It returns values to directory and
+timeline owners and accepts their explicit commits; it never reads or writes UI
+state. Reads are scoped to the requested host, kinds, and ids. Opening a cached
+workspace uses exact workspace and project keys rather than a directory scan.
+One invalid row is deleted and returned as a miss without affecting other rows.
+An invalid directory row and its affected checkpoint cursor are repaired in one
+transaction, so a later launch cannot accept a checkpoint for a partial
+baseline. Directory changes and their checkpoint are also applied in one
+transaction. Reads wait for accepted changes to reach storage, then retry only
+when a requested row changes during the read. Unrelated agent streams do not
+invalidate the read. Directory baseline replacements and host removal or
+renaming still invalidate the affected reads.
 
-The cache is capped at 32 MiB and evicts whole hosts in least-recently-written order. Budget
-bookkeeping may scan opaque row sizes during a deferred write, never during host registry startup or
-before a requested cache row can paint. The row store is not encrypted. A cached timeline can contain
-source code, prompts, and tool output; encrypted-at-rest storage is a separate security decision.
+The cache is capped at 32 MiB and evicts whole hosts in least-recently-written
+order. Budget bookkeeping may scan opaque row sizes during a deferred write,
+never during host registry startup or before a requested cache row can paint.
+The row store is not encrypted. A cached timeline can contain source code,
+prompts, and tool output; encrypted-at-rest storage is a separate security
+decision.
 
 ### Draft Store
 

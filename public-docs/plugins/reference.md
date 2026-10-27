@@ -1,6 +1,7 @@
 ---
 title: Plugin reference
-description: Local plugin files, client and server runtimes, platform limits, contributions, RPCs, lifecycle, hosts, and CLI commands.
+description: Local plugin files, client and server runtimes, platform limits,
+  contributions, RPCs, lifecycle, hosts, and CLI commands.
 nav: Reference
 order: 48
 category: Plugins
@@ -10,9 +11,11 @@ category: Plugins
 
 Start with the [plugin quickstart](/docs/plugins) to create your first plugin.
 
-Migrating an existing plugin? Follow the standalone [runtime-entry migration guide](/docs/plugins/migration).
+Migrating an existing plugin? Follow the standalone
+[runtime-entry migration guide](/docs/plugins/migration).
 
-Local plugins are directory sources installed into one Paseo daemon. A plugin can contribute:
+Local plugins are directory sources installed into one Paseo daemon. A plugin
+can contribute:
 
 - React Native screens and sidebar header and footer items to Paseo clients;
 - workspace and agent panels opened as workspace tabs;
@@ -25,13 +28,17 @@ Local plugins are directory sources installed into one Paseo daemon. A plugin ca
 - normal Paseo operations through the TypeScript SDK;
 - searchable external resources in the message composer.
 
-Plugin code is trusted and unsandboxed. Client surfaces run in the Paseo app. Backend contributions run in a subprocess with access to the daemon machine, including its files, processes, credentials, and network.
+Plugin code is trusted and unsandboxed. Client surfaces run in the Paseo app.
+Backend contributions run in a subprocess with access to the daemon machine,
+including its files, processes, credentials, and network.
 
 ## Connected hosts
 
-`usePaseo().hosts` in a client surface and `context.paseo.hosts` in a server handler or lifecycle hook
-use the same [SDK host API](/sdk/reference#clienthosts). They describe the selected daemon's saved
-connections. Existing `useHosts()` and `getPaseoClient(serverId)` keep describing app-known hosts.
+`usePaseo().hosts` in a client surface and `context.paseo.hosts` in a server
+handler or lifecycle hook use the same
+[SDK host API](/sdk/reference#clienthosts). They describe the selected daemon's
+saved connections. Existing `useHosts()` and `getPaseoClient(serverId)` keep
+describing app-known hosts.
 
 ```ts
 const remote = await context.paseo.hosts.client("srv_build_box");
@@ -42,10 +49,11 @@ try {
 }
 ```
 
-A returned API owns its observations. Teardown of the plugin API also disposes derived scopes.
-Keep remote calls inside the handler or lifecycle scope that owns them. Calling B does not forward
-B's plugin lifecycle hooks to A. Registrations created by a routed plugin retain a source qualified
-by the authenticated link and originating plugin.
+A returned API owns its observations. Teardown of the plugin API also disposes
+derived scopes. Keep remote calls inside the handler or lifecycle scope that
+owns them. Calling B does not forward B's plugin lifecycle hooks to A.
+Registrations created by a routed plugin retain a source qualified by the
+authenticated link and originating plugin.
 
 ## Project files
 
@@ -84,23 +92,26 @@ The required root manifest is `paseo-plugin.json`:
 | `requirements` | No       | Supported Paseo versions, described below.                                                                                                   |
 | `build`        | No       | Preparation commands, described in the CLI reference.                                                                                        |
 
-Paths are relative to `paseo-plugin.json`, use forward slashes, and cannot contain `..`
-segments. Registry listings for visual plugins require an interface image even though `media` is
-optional in the runtime manifest. See [icons and screenshots](/docs/plugins/publishing#icons-and-screenshots)
-for accepted formats and listing requirements.
-Paseo validates the references without opening local assets or fetching URLs.
+Paths are relative to `paseo-plugin.json`, use forward slashes, and cannot
+contain `..` segments. Registry listings for visual plugins require an interface
+image even though `media` is optional in the runtime manifest. See
+[icons and screenshots](/docs/plugins/publishing#icons-and-screenshots) for
+accepted formats and listing requirements. Paseo validates the references
+without opening local assets or fetching URLs.
 
-Unknown top-level fields are ignored. Known fields still validate, and unknown keys inside
-`requirements` are rejected so a misspelled constraint cannot silently skip a compatibility check.
-Manifests using `name`, `icon`, or `media` require Paseo 0.11.0 or later; older daemons reject
-these fields during installation.
+Unknown top-level fields are ignored. Known fields still validate, and unknown
+keys inside `requirements` are rejected so a misspelled constraint cannot
+silently skip a compatibility check. Manifests using `name`, `icon`, or `media`
+require Paseo 0.11.0 or later; older daemons reject these fields during
+installation.
 
 ### Requirements
 
-`requirements` is an optional object. Its currently supported key, `paseo`, accepts an npm semver
-range. An omitted `requirements.paseo` means `<0.8.0`: the plugin predates the first breaking
-plugin release. Paseo 0.8 and later reject it with a link to the [migration guide](migration).
-Empty strings, invalid ranges, and unknown manifest requirement keys are rejected.
+`requirements` is an optional object. Its currently supported key, `paseo`,
+accepts an npm semver range. An omitted `requirements.paseo` means `<0.8.0`: the
+plugin predates the first breaking plugin release. Paseo 0.8 and later reject it
+with a link to the [migration guide](migration). Empty strings, invalid ranges,
+and unknown manifest requirement keys are rejected.
 
 | Range            | Compatible releases                                                          |
 | ---------------- | ---------------------------------------------------------------------------- |
@@ -108,23 +119,29 @@ Empty strings, invalid ranges, and unknown manifest requirement keys are rejecte
 | `^0.8.0`         | 0.8.x releases, including prereleases                                        |
 | `>=0.8.3 <0.9.0` | 0.8.3 through the last 0.8 patch, including prereleases                      |
 
-Prerelease Paseo versions also satisfy a range their stable core (`major.minor.patch`) satisfies, so `0.8.0-beta.1` satisfies `>=0.8.0` but not `<0.8.0`.
+Prerelease Paseo versions also satisfy a range their stable core
+(`major.minor.patch`) satisfies, so `0.8.0-beta.1` satisfies `>=0.8.0` but not
+`<0.8.0`.
 
-A prerelease minimum such as `>=0.12.0-beta.4` therefore also admits `0.12.0-beta.3` through its stable core `0.12.0`. Use a different stable core when you need to exclude earlier builds of that core.
+A prerelease minimum such as `>=0.12.0-beta.4` therefore also admits
+`0.12.0-beta.3` through its stable core `0.12.0`. Use a different stable core
+when you need to exclude earlier builds of that core.
 
-`paseo plugin init` writes `>=` followed by the current CLI version and pins the matching SDK
-for typechecking. Raise the minimum when adopting a newer API. Add an upper bound when a later
-release is incompatible; a minimum alone does not promise protection from future breaking changes.
+`paseo plugin init` writes `>=` followed by the current CLI version and pins the
+matching SDK for typechecking. Raise the minimum when adopting a newer API. Add
+an upper bound when a later release is incompatible; a minimum alone does not
+promise protection from future breaking changes.
 
-The daemon checks its version before installing, running preparation commands, or loading a plugin,
-and checks again on startup, enable, and reload. A rejected update keeps the installed revision.
-Each connected app checks its own version before evaluating client code and shows incompatibility
-in Settings → Plugins. A compatible daemon does not make an older app compatible. A plugin with no
-client entry does not require the connected app to match.
+The daemon checks its version before installing, running preparation commands,
+or loading a plugin, and checks again on startup, enable, and reload. A rejected
+update keeps the installed revision. Each connected app checks its own version
+before evaluating client code and shows incompatibility in Settings → Plugins. A
+compatible daemon does not make an older app compatible. A plugin with no client
+entry does not require the connected app to match.
 
-For example: `Plugin "review" requires Paseo >=0.8.0. Your daemon is 0.7.2.` Use a compatible plugin
-revision or update the named runtime. Releases before 0.8 do not understand this manifest field
-and cannot show this new diagnostic.
+For example: `Plugin "review" requires Paseo >=0.8.0. Your daemon is 0.7.2.` Use
+a compatible plugin revision or update the named runtime. Releases before 0.8 do
+not understand this manifest field and cannot show this new diagnostic.
 
 ### Runtime entries
 
@@ -133,18 +150,21 @@ and cannot show this new diagnostic.
 | `index.client.tsx` | Paseo app, per client | `PluginClientContext` | When the plugin has any UI, callback, theme, or attachment source               |
 | `index.server.ts`  | Daemon subprocess     | `PluginServerContext` | When the plugin contributes handlers, hooks, settings persistence, or providers |
 
-At least one entry is required; both accept `.ts` or `.tsx`. A directory that still has only the
-old `index.ts` fails to load and points at the [migration guide](/docs/plugins/migration).
+At least one entry is required; both accept `.ts` or `.tsx`. A directory that
+still has only the old `index.ts` fails to load and points at the
+[migration guide](/docs/plugins/migration).
 
-Plugin, screen, sidebar-item, workspace-panel, Command Center item, attachment-source, and
-slash-command IDs start with a lowercase letter and contain lowercase letters, numbers, or hyphens.
+Plugin, screen, sidebar-item, workspace-panel, Command Center item,
+attachment-source, and slash-command IDs start with a lowercase letter and
+contain lowercase letters, numbers, or hyphens.
 
-The generated `package.json` installs `@getpaseo/plugin` and the other host modules as development
-dependencies for local typechecking and tests. Paseo supplies their runtime instances. Consumers do
-not install them when adding the plugin.
+The generated `package.json` installs `@getpaseo/plugin` and the other host
+modules as development dependencies for local typechecking and tests. Paseo
+supplies their runtime instances. Consumers do not install them when adding the
+plugin.
 
-Every other module lives in one of three directories. Nesting inside them is fine; a module at the
-plugin root is a compile error.
+Every other module lives in one of three directories. Nesting inside them is
+fine; a module at the plugin root is a compile error.
 
 | Directory | Compiled into      | Use it for                                                           |
 | --------- | ------------------ | -------------------------------------------------------------------- |
@@ -154,9 +174,16 @@ plugin root is a compile error.
 
 ## Runtime translations {#runtime-translations}
 
-**Unreleased API.** Set `requirements.paseo` to the release that introduces these APIs before publishing your plugin. The [translation example](https://github.com/getpaseo/paseo/tree/main/plugin-examples/translations) uses `>=0.12.1` provisionally; the introducing release has not been assigned.
+**Unreleased API.** Set `requirements.paseo` to the release that introduces
+these APIs before publishing your plugin. The
+[translation example](https://github.com/getpaseo/paseo/tree/main/plugin-examples/translations)
+uses `>=0.12.1` provisionally; the introducing release has not been assigned.
 
-Ship JSON resources with your client bundle. English (`en`) is required; other keys use canonical language tags such as `zh-CN`. Resources contain nested objects with string leaves. Other languages may omit keys, which fall back to English. Unknown keys, malformed resources, noncanonical locale tags, and mismatched interpolation placeholders are rejected when defining translations.
+Ship JSON resources with your client bundle. English (`en`) is required; other
+keys use canonical language tags such as `zh-CN`. Resources contain nested
+objects with string leaves. Other languages may omit keys, which fall back to
+English. Unknown keys, malformed resources, noncanonical locale tags, and
+mismatched interpolation placeholders are rejected when defining translations.
 
 ```ts
 // client/messages.ts
@@ -164,10 +191,14 @@ import { defineTranslations } from "@getpaseo/plugin/client";
 import en from "./locales/en.json";
 import zhCN from "./locales/zh-CN.json";
 
-export const messages = defineTranslations({ resources: { en, "zh-CN": zhCN } });
+export const messages = defineTranslations({
+  resources: { en, "zh-CN": zhCN },
+});
 ```
 
-Enable `resolveJsonModule` in your plugin's `tsconfig.json`. Paseo bundles these imports locally; no network loader runs. For example, the resource pair can contain:
+Enable `resolveJsonModule` in your plugin's `tsconfig.json`. Paseo bundles these
+imports locally; no network loader runs. For example, the resource pair can
+contain:
 
 `client/locales/en.json`:
 
@@ -213,29 +244,57 @@ client.addScreen({
 });
 ```
 
-`PluginText` is `string | PluginMessage`. Message references work in screen titles (including title functions), settings and sidebar titles, workspace and file panel titles, Command Center titles, slash-command descriptions and argument hints, button titles and labels, nested menu titles, attachment-source titles/picker titles/search placeholders, and theme names. Existing literal strings remain valid. Keep IDs, slash-command names, icons, URLs, and command search keywords stable.
+`PluginText` is `string | PluginMessage`. Message references work in screen
+titles (including title functions), settings and sidebar titles, workspace and
+file panel titles, Command Center titles, slash-command descriptions and
+argument hints, button titles and labels, nested menu titles, attachment-source
+titles/picker titles/search placeholders, and theme names. Existing literal
+strings remain valid. Keep IDs, slash-command names, icons, URLs, and command
+search keywords stable.
 
-Descriptor types keep their existing string defaults. When explicitly annotating translated descriptors, use the text parameter, for example `PluginScreenContribution<PluginText>`. Inline registrations infer this automatically.
+Descriptor types keep their existing string defaults. When explicitly annotating
+translated descriptors, use the text parameter, for example
+`PluginScreenContribution<PluginText>`. Inline registrations infer this
+automatically.
 
-For transient text in callbacks, call `client.i18n.t(messages, "add")`; it reads the app's current language at invocation. `client.i18n.locale` and the hook's `locale` report the resolved app language even when a message falls back to English. Do not store the result of `t` as a persistent registration label.
+For transient text in callbacks, call `client.i18n.t(messages, "add")`; it reads
+the app's current language at invocation. `client.i18n.locale` and the hook's
+`locale` report the resolved app language even when a message falls back to
+English. Do not store the result of `t` as a persistent registration label.
 
-Keys come from English. Plural base keys such as `notes` require a numeric `count`; i18next selects the locale's `_zero`, `_one`, `_two`, `_few`, `_many`, or `_other` form. Use `{{name}}` for named interpolation and pass `{ name: value }`. JSON string values are widened by TypeScript, so interpolation names from imported JSON are checked at runtime; inline literal resources also infer required interpolation names. i18next formatting syntax such as `{{amount, number}}` uses the resolved language's `Intl` formatter.
+Keys come from English. Plural base keys such as `notes` require a numeric
+`count`; i18next selects the locale's `_zero`, `_one`, `_two`, `_few`, `_many`,
+or `_other` form. Use `{{name}}` for named interpolation and pass
+`{ name: value }`. JSON string values are widened by TypeScript, so
+interpolation names from imported JSON are checked at runtime; inline literal
+resources also infer required interpolation names. i18next formatting syntax
+such as `{{amount, number}}` uses the resolved language's `Intl` formatter.
 
-An explicit app language wins over the device language; System follows the app's supported-locale resolution. Separate connected apps have independent languages. Changing language updates mounted UI and host labels without reloading the plugin, resetting component state, or replacing its RPC/query cache. Modal and popover content receives the same installation context on web and native.
+An explicit app language wins over the device language; System follows the app's
+supported-locale resolution. Separate connected apps have independent languages.
+Changing language updates mounted UI and host labels without reloading the
+plugin, resetting component state, or replacing its RPC/query cache. Modal and
+popover content receives the same installation context on web and native.
 
-Return language-neutral structured RPC data and translate its presentation in the client. Keep user drafts, agent output, raw daemon errors, logs, and terminal text unchanged. Manifest listing translations and `OVERVIEW.<locale>.md` are separate publication metadata; see [your listing page](publishing#your-listing-page).
+Return language-neutral structured RPC data and translate its presentation in
+the client. Keep user drafts, agent output, raw daemon errors, logs, and
+terminal text unchanged. Manifest listing translations and
+`OVERVIEW.<locale>.md` are separate publication metadata; see
+[your listing page](publishing#your-listing-page).
 
 ## Runtime modules
 
-Paseo builds each bundle from its matching entry. An import from `client/` into the daemon bundle,
-from `server/` into the app bundle, or of a Node module anywhere in the app bundle is a compile
-error. Server imports of React, React Native, or client SDK entries also fail. Shared code imports
-only shared code: no Node, React, runtime-specific SDK entries, or runtime-specific types.
+Paseo builds each bundle from its matching entry. An import from `client/` into
+the daemon bundle, from `server/` into the app bundle, or of a Node module
+anywhere in the app bundle is a compile error. Server imports of React, React
+Native, or client SDK entries also fail. Shared code imports only shared code:
+no Node, React, runtime-specific SDK entries, or runtime-specific types.
 
-The SDK root (`@getpaseo/plugin`) contains shared data, schemas, and runtime-neutral helpers only.
-Import client contexts and hooks from `/client`, server contexts and lifecycle contracts from
-`/server`, and UI from `/client/ui`. These rules include type imports and transitive
-dependencies. `/client/host` is private to the app host; plugins cannot import it.
+The SDK root (`@getpaseo/plugin`) contains shared data, schemas, and
+runtime-neutral helpers only. Import client contexts and hooks from `/client`,
+server contexts and lifecycle contracts from `/server`, and UI from
+`/client/ui`. These rules include type imports and transitive dependencies.
+`/client/host` is private to the app host; plugins cannot import it.
 
 ### Client runtime
 
@@ -252,18 +311,25 @@ Paseo provides these modules to client code:
 | `react-native`               | Cross-platform UI                                                                                 |
 | `zod`                        | Shared schemas                                                                                    |
 
-The host owns its paired React and renderer versions. The SDK's React peer range permits patch
-versions for tooling and Node consumers; it does not change the app's pinned React version or
-guarantee compatibility with another host's renderer.
+The host owns its paired React and renderer versions. The SDK's React peer range
+permits patch versions for tooling and Node consumers; it does not change the
+app's pinned React version or guarantee compatibility with another host's
+renderer.
 
-These exact module specifiers use the host's runtime instances. A client bundle that requests another host module fails with `Module "<name>" is not available in plugin client code`.
+These exact module specifiers use the host's runtime instances. A client bundle
+that requests another host module fails with
+`Module "<name>" is not available in plugin client code`.
 
-Do not import `lucide-react-native`, `react-native-svg`, or DOM libraries. Set contribution `icon` fields to a [Lucide icon name](https://lucide.dev/icons/), inline SVG, or a component; Paseo validates the icon and renders it. See [Icons](#icons).
+Do not import `lucide-react-native`, `react-native-svg`, or DOM libraries. Set
+contribution `icon` fields to a [Lucide icon name](https://lucide.dev/icons/),
+inline SVG, or a component; Paseo validates the icon and renders it. See
+[Icons](#icons).
 
 ### Cross-platform rules
 
-Client code runs on iOS, Android, and in browsers through React Native Web. A component that works
-in your browser and crashes on a phone is the most common plugin bug. The rules:
+Client code runs on iOS, Android, and in browsers through React Native Web. A
+component that works in your browser and crashes on a phone is the most common
+plugin bug. The rules:
 
 | Do                                                                         | Do not                                                                      |
 | -------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
@@ -272,15 +338,17 @@ in your browser and crashes on a phone is the most common plugin bug. The rules:
 | `onPress`                                                                  | `onClick`, `onMouseEnter`, or other DOM handlers                            |
 | `Linking`, `Clipboard`-style React Native APIs                             | `window`, `document`, `localStorage`, `navigator`, `location` in components |
 
-The scaffold's `tsconfig.json` omits the DOM library. Keep DOM globals out of cross-platform
-components; do not add `/// <reference lib="dom" />` or `"DOM"` to `lib`.
-`layout.platform` carries the same value as React Native's `Platform.OS` for rendering decisions.
+The scaffold's `tsconfig.json` omits the DOM library. Keep DOM globals out of
+cross-platform components; do not add `/// <reference lib="dom" />` or `"DOM"`
+to `lib`. `layout.platform` carries the same value as React Native's
+`Platform.OS` for rendering decisions.
 
 ### Play audio
 
-Call `client.playAudio({ base64, mimeType }): Promise<void>` to play an audio file on the
-current client (browser, Electron, iOS, or Android). Pass the base64 file returned by your
-plugin RPC; no browser globals or platform checks are needed.
+Call `client.playAudio({ base64, mimeType }): Promise<void>` to play an audio
+file on the current client (browser, Electron, iOS, or Android). Pass the base64
+file returned by your plugin RPC; no browser globals or platform checks are
+needed.
 
 ```ts
 const audio = await client.rpc(renderSpeech, { text: "Your agent needs you" });
@@ -288,16 +356,18 @@ const audio = await client.rpc(renderSpeech, { text: "Your agent needs you" });
 await client.playAudio(audio);
 ```
 
-The promise resolves when playback finishes and rejects if the file is invalid, playback
-fails, or the plugin unloads. Calls share Paseo's voice playback queue and play in order.
-Unloading a plugin cancels its active and queued audio. Voice playback controls can also
-interrupt that shared queue. Playback does not request microphone permission.
+The promise resolves when playback finishes and rejects if the file is invalid,
+playback fails, or the plugin unloads. Calls share Paseo's voice playback queue
+and play in order. Unloading a plugin cancels its active and queued audio. Voice
+playback controls can also interrupt that shared queue. Playback does not
+request microphone permission.
 
-Use PCM WAV or MP3 for portable files. Other codecs depend on the client's decoder.
-MIME parameters are accepted. Pass a complete audio file; raw PCM samples are not supported.
-Browsers require user interaction before allowing sound; handle rejection and offer a
-play button. The function plays on the device running the plugin client, not on the daemon,
-and does not promise delivery while the app is suspended or closed.
+Use PCM WAV or MP3 for portable files. Other codecs depend on the client's
+decoder. MIME parameters are accepted. Pass a complete audio file; raw PCM
+samples are not supported. Browsers require user interaction before allowing
+sound; handle rejection and offer a play button. The function plays on the
+device running the plugin client, not on the daemon, and does not promise
+delivery while the app is suspended or closed.
 
 ### External links and workspace browsers
 
@@ -322,7 +392,8 @@ export async function openDocumentation() {
 }
 ```
 
-Call the function directly from a user interaction so the browser permits a new tab.
+Call the function directly from a user interaction so the browser permits a new
+tab.
 
 | Platform      | External links                     | `navigation.openBrowser`                         |
 | ------------- | ---------------------------------- | ------------------------------------------------ |
@@ -342,8 +413,9 @@ Call the function directly from a user interaction so the browser permits a new 
 
 #### Open a workspace browser
 
-Use `navigation.openBrowser` from a surface or panel. Check availability before rendering
-the action. This workspace panel chooses an external link on other platforms:
+Use `navigation.openBrowser` from a surface or panel. Check availability before
+rendering the action. This workspace panel chooses an external link on other
+platforms:
 
 ```tsx
 import type { PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
@@ -366,8 +438,8 @@ export function DocumentationPanel({ navigation, workspaceId, theme }: PluginWor
 }
 ```
 
-`navigation.openBrowser({ url, workspaceId, serverId? }): void` creates and focuses a new tab.
-It never opens externally as an automatic fallback.
+`navigation.openBrowser({ url, workspaceId, serverId? }): void` creates and
+focuses a new tab. It never opens externally as an automatic fallback.
 
 | Option                | Required | Behavior / default                                                |
 | --------------------- | -------- | ----------------------------------------------------------------- |
@@ -381,8 +453,8 @@ To target another host, pass its ID with that host's workspace ID:
 openBrowser({ url, workspaceId: remoteWorkspaceId, serverId: remoteServerId });
 ```
 
-`serverId` selects workspace ownership. The page runs on your local desktop, including
-for remote workspaces; `localhost` URLs refer to that desktop.
+`serverId` selects workspace ownership. The page runs on your local desktop,
+including for remote workspaces; `localhost` URLs refer to that desktop.
 
 #### Errors and refusal
 
@@ -395,48 +467,56 @@ for remote workspaces; `localhost` URLs refer to that desktop.
 | In-app browser workspace ID is empty                                  | Throws `workspaceId is required.` before creating a tab                        |
 | Target host/workspace is unknown or its workspace list has not loaded | Throws `Workspace is unavailable on the requested host.` before creating a tab |
 
-Use the [settings API](#settings-screens) for typed host-scoped persistence across clients.
-Use `openSettings`, `openScreen`, and `openPanel` for your own registered contributions.
+Use the [settings API](#settings-screens) for typed host-scoped persistence
+across clients. Use `openSettings`, `openScreen`, and `openPanel` for your own
+registered contributions.
 
 ### Server runtime
 
 Paseo provides `@getpaseo/plugin`, `@getpaseo/plugin/server`,
-`@getpaseo/plugin/server/provider`, `@getpaseo/plugin/server/acp`, and `zod` to server code. Backend
-contributions run in a daemon subprocess with Node access to the host machine. Keep filesystem,
-process, credential, and other machine-local work under `server/`. A plugin without
-`index.server.ts` starts no subprocess.
+`@getpaseo/plugin/server/provider`, `@getpaseo/plugin/server/acp`, and `zod` to
+server code. Backend contributions run in a daemon subprocess with Node access
+to the host machine. Keep filesystem, process, credential, and other
+machine-local work under `server/`. A plugin without `index.server.ts` starts no
+subprocess.
 
 ### Providers
 
-Follow [Build a provider plugin](/docs/plugins/providers) for direct and ACP implementations,
-session lifecycle, composer settings, timeline renderers, testing, and distribution.
+Follow [Build a provider plugin](/docs/plugins/providers) for direct and ACP
+implementations, session lifecycle, composer settings, timeline renderers,
+testing, and distribution.
 
 Call `server.registerProvider()` with a `ProviderRegistration` from
-`@getpaseo/plugin/server/provider`. Its connection accepts inputs with `send()` and emits complete state
-snapshots through `onEvent()`. `send()` reports acceptance only; prompt disposition, turns,
-configuration, persistence, permissions, and failures are events.
+`@getpaseo/plugin/server/provider`. Its connection accepts inputs with `send()`
+and emits complete state snapshots through `onEvent()`. `send()` reports
+acceptance only; prompt disposition, turns, configuration, persistence,
+permissions, and failures are events.
 
-Use the single `session.prompt` input for messages, structured commands, steering, and command side
-effects. Repeat `clientMessageId` on the live user timeline item and publish exactly one matching
-`session.prompt_result`. Publish provider-created children as sessions with `parentSessionId`.
+Use the single `session.prompt` input for messages, structured commands,
+steering, and command side effects. Repeat `clientMessageId` on the live user
+timeline item and publish exactly one matching `session.prompt_result`. Publish
+provider-created children as sessions with `parentSessionId`.
 
-Provider settings are toggle/select descriptors that Paseo renders in the composer. Keep
-provider-private options under `ProviderSessionConfig.providerOptions` on `session.open`.
-This record includes configured defaults and per-agent overrides; validate and apply it in your
-provider. See [Provider options](/docs/sdk/provider-options) for configuration and merge semantics.
-Host tools arrive as MCP servers in the complete
-session config.
+Provider settings are toggle/select descriptors that Paseo renders in the
+composer. Keep provider-private options under
+`ProviderSessionConfig.providerOptions` on `session.open`. This record includes
+configured defaults and per-agent overrides; validate and apply it in your
+provider. See [Provider options](/docs/sdk/provider-options) for configuration
+and merge semantics. Host tools arrive as MCP servers in the complete session
+config.
 
-Paseo refreshes an agent by closing its current provider session and opening it with current
-configuration and persistence. Providers re-read external state during `session.open`.
+Paseo refreshes an agent by closing its current provider session and opening it
+with current configuration and persistence. Providers re-read external state
+during `session.open`.
 
-Use `runAcpProvider()` from `@getpaseo/plugin/server/acp` to adapt a command-backed ACP. Add transformer
-hooks only for a vendor's discovery, configuration, notification, or tool-call differences.
+Use `runAcpProvider()` from `@getpaseo/plugin/server/acp` to adapt a
+command-backed ACP. Add transformer hooks only for a vendor's discovery,
+configuration, notification, or tool-call differences.
 
-`ProviderRegistration.icon` is a file path relative to the plugin directory, such as `icon.svg`.
-It must resolve inside that directory to a regular file that follows the
-[SVG icon rules](#svg-rules). Paseo reads and validates the file when the plugin starts; the string
-is never inline SVG or a URL.
+`ProviderRegistration.icon` is a file path relative to the plugin directory,
+such as `icon.svg`. It must resolve inside that directory to a regular file that
+follows the [SVG icon rules](#svg-rules). Paseo reads and validates the file
+when the plugin starts; the string is never inline SVG or a URL.
 
 ### Usage sources
 
@@ -456,7 +536,12 @@ interface UsageAccount {
 
 type UsageScope =
   | { kind: "global" }
-  | { kind: "session"; provider: string; model?: string; env: Record<string, string> };
+  | {
+      kind: "session";
+      provider: string;
+      model?: string;
+      env: Record<string, string>;
+    };
 
 interface UsageSourceRegistration {
   id: string;
@@ -484,18 +569,20 @@ type UsageProblem =
   | { kind: "no_quota"; detail: string };
 ```
 
-Session discovery returns only the login that agent runs on. The agent popover uses only those
-inputs; it never tries logins from global discovery or other agents. For any other provider,
-return `[]`. Global discovery lists every account, including expired logins.
+Session discovery returns only the login that agent runs on. The agent popover
+uses only those inputs; it never tries logins from global discovery or other
+agents. For any other provider, return `[]`. Global discovery lists every
+account, including expired logins.
 
-Resolve the session account from that session's launch environment. Return `[]` when no login exists.
-Never scan default stores from session discovery or scan agents from global discovery. Discovery is a query, with no agent
-lifecycle hooks. Closed agents have no session scope until resumed.
+Resolve the session account from that session's launch environment. Return `[]`
+when no login exists. Never scan default stores from session discovery or scan
+agents from global discovery. Discovery is a query, with no agent lifecycle
+hooks. Closed agents have no session scope until resumed.
 
-Inputs name credential stores; never put credentials in inputs or reports. Paseo validates each
-input against your schema before calling `fetch()`. The same key in any scope is the same report;
-fetches share a five-minute cache only when their ordered login inputs match. Each login fetch
-has a 20-second deadline.
+Inputs name credential stores; never put credentials in inputs or reports. Paseo
+validates each input against your schema before calling `fetch()`. The same key
+in any scope is the same report; fetches share a five-minute cache only when
+their ordered login inputs match. Each login fetch has a 20-second deadline.
 
 Built-in session routes:
 
@@ -509,56 +596,64 @@ Built-in session routes:
 | Muse                   | `muse`                                        | That session's own Muse launch/config                                                          |
 | Other built-in sources | Any                                           | No session discovery                                                                           |
 
-Claude excludes Bedrock, Vertex, and foreign `ANTHROPIC_BASE_URL` sessions. Codex excludes sessions
-with `OPENAI_BASE_URL` set. Cursor excludes sessions that authenticate with `CURSOR_API_KEY` or
-`CURSOR_AUTH_TOKEN`, and macOS sessions that keep the login in the Keychain, the default unless
+Claude excludes Bedrock, Vertex, and foreign `ANTHROPIC_BASE_URL` sessions.
+Codex excludes sessions with `OPENAI_BASE_URL` set. Cursor excludes sessions
+that authenticate with `CURSOR_API_KEY` or `CURSOR_AUTH_TOKEN`, and macOS
+sessions that keep the login in the Keychain, the default unless
 `AGENT_CLI_CREDENTIAL_STORE=file`.
 
-Use a stable account key: 1–128 characters from `[A-Za-z0-9._-]`. It identifies the account or
-organization whose quota is metered and survives token rotation. Never use a credential or raw
-email as the key. Use `hashAccountKey()` for sensitive stable identities or a store locator when
-account metadata is unavailable. Labels can name accounts without becoming their identity.
+Use a stable account key: 1–128 characters from `[A-Za-z0-9._-]`. It identifies
+the account or organization whose quota is metered and survives token rotation.
+Never use a credential or raw email as the key. Use `hashAccountKey()` for
+sensitive stable identities or a store locator when account metadata is
+unavailable. Labels can name accounts without becoming their identity.
 
-Return logins in preference order and set `harness` to the owning harness's display name, such as
-Codex, OpenCode, Pi, or OMP. The daemon treats inputs as opaque and never derives labels from them.
+Return logins in preference order and set `harness` to the owning harness's
+display name, such as Codex, OpenCode, Pi, or OMP. The daemon treats inputs as
+opaque and never derives labels from them.
 
-The host-wide Usage modal groups logins with the same key into one account card and tries them
-concurrently, preferring the discovery order when selecting a result. If any login returns
-`available`, it shows usage with no errors. If all fail, it shows
-every login's error on a separate line with its harness label and its own remedy.
-Discovery failures are logged by the daemon and produce no card.
+The host-wide Usage modal groups logins with the same key into one account card
+and tries them concurrently, preferring the discovery order when selecting a
+result. If any login returns `available`, it shows usage with no errors. If all
+fail, it shows every login's error on a separate line with its harness label and
+its own remedy. Discovery failures are logged by the daemon and produce no card.
 
-Window names must come from provider data: an explicit duration, a named API field such as
-`five_hour` or `weekly`, or the provider's own period name. Response slots and reset countdowns
-do not establish duration. When the provider omits it, use a neutral name such as “Rolling” or
-“Primary limit” and explain the missing metadata next to the adapter.
+Window names must come from provider data: an explicit duration, a named API
+field such as `five_hour` or `weekly`, or the provider's own period name.
+Response slots and reset countdowns do not establish duration. When the provider
+omits it, use a neutral name such as “Rolling” or “Primary limit” and explain
+the missing metadata next to the adapter.
 
 For numeric durations, use `windowFromReportedDuration()` from
-`@getpaseo/plugin/server/usage` (Paseo 0.11+). Pass the reported seconds or `null`, a neutral
-`unknown` identity and name, and an optional stable quota `scope`. The helper derives the ID,
-label, and short label together; it accepts no duration-label override. For named API periods,
-use `windowFromUsedPct()` with names justified by that field.
+`@getpaseo/plugin/server/usage` (Paseo 0.11+). Pass the reported seconds or
+`null`, a neutral `unknown` identity and name, and an optional stable quota
+`scope`. The helper derives the ID, label, and short label together; it accepts
+no duration-label override. For named API periods, use `windowFromUsedPct()`
+with names justified by that field.
 
-A window ID identifies a quota scope and period, never its response position, utilization, or
-reset instant. Scope model-specific quotas by the provider's stable feature ID, falling back to
-the reported limit name when no ID exists. Preserve IDs across slot moves and display-name
-changes. Do not alias an old ambiguous ID to a different period: saved pins match source and
-window IDs across all accounts, so users must select the corrected window again.
+A window ID identifies a quota scope and period, never its response position,
+utilization, or reset instant. Scope model-specific quotas by the provider's
+stable feature ID, falling back to the reported limit name when no ID exists.
+Preserve IDs across slot moves and display-name changes. Do not alias an old
+ambiguous ID to a different period: saved pins match source and window IDs
+across all accounts, so users must select the corrected window again.
 
-`summary: true` selects source defaults until the user customizes pins. The app computes one
-effective selection for cards, the sidebar, and toggles. The first edit snapshots those defaults;
-an explicit empty selection stays empty.
+`summary: true` selects source defaults until the user customizes pins. The app
+computes one effective selection for cards, the sidebar, and toggles. The first
+edit snapshots those defaults; an explicit empty selection stays empty.
 
-Re-read the selected store in `fetch()` so the CLI's token rotations take effect. Never redeem
-refresh tokens or write credential stores: refreshing elsewhere can invalidate the CLI's copy,
-and rewriting parsed files can discard fields you do not model. If the store disappeared after
-discovery, throw; the card shows the error until the next discovery removes it.
+Re-read the selected store in `fetch()` so the CLI's token rotations take
+effect. Never redeem refresh tokens or write credential stores: refreshing
+elsewhere can invalidate the CLI's copy, and rewriting parsed files can discard
+fields you do not model. If the store disappeared after discovery, throw; the
+card shows the error until the next discovery removes it.
 
-Use `unavailable(problem)` to explain why an existing login cannot supply quota. It requires a
-problem; there is no zero-argument form. `expiresAt` is an ISO timestamp. A rejected login carries
-the upstream HTTP status. `refreshedBy` is a CLI name, such as `claude`, `codex`, `opencode`, `omp`, or
-`pi`. Paseo owns the remedy sentence. Do not put instructions or user-facing sentences in that
-field. For `no_quota`, `detail` is displayed verbatim.
+Use `unavailable(problem)` to explain why an existing login cannot supply quota.
+It requires a problem; there is no zero-argument form. `expiresAt` is an ISO
+timestamp. A rejected login carries the upstream HTTP status. `refreshedBy` is a
+CLI name, such as `claude`, `codex`, `opencode`, `omp`, or `pi`. Paseo owns the
+remedy sentence. Do not put instructions or user-facing sentences in that field.
+For `no_quota`, `detail` is displayed verbatim.
 
 ```ts
 import { z } from "zod";
@@ -595,28 +690,33 @@ export default function contribute(server: PluginServerContext) {
 }
 ```
 
-Built-in Claude discovery prefers the macOS Keychain login and uses the Claude Code credential
-file only when Keychain is empty. `CLAUDE_CONFIG_DIR` selects that file's directory. Fresh tokens
-use the OAuth profile's account and organization IDs; expired or rejected profiles use a locator
-hash. Codex prefers Codex CLI, OpenCode, Pi, then OMP and groups by the ChatGPT account ID from stored
-metadata or JWT claims. Pi and OMP logins remain discoverable when expired. OMP requires
-`node:sqlite`.
+Built-in Claude discovery prefers the macOS Keychain login and uses the Claude
+Code credential file only when Keychain is empty. `CLAUDE_CONFIG_DIR` selects
+that file's directory. Fresh tokens use the OAuth profile's account and
+organization IDs; expired or rejected profiles use a locator hash. Codex prefers
+Codex CLI, OpenCode, Pi, then OMP and groups by the ChatGPT account ID from
+stored metadata or JWT claims. Pi and OMP logins remain discoverable when
+expired. OMP requires `node:sqlite`.
 
-`usage.list_reports` discovers accounts when called without IDs. With IDs, it refreshes known
-accounts without rediscovering identity. If a store switches accounts, the existing card shows the
-new login's quota until the next discovery. Reports are cached for five minutes; `forceRefresh`
-bypasses that cache. Entries carry `id`, `account.label`, and `fetchedAt`. Failed accounts also carry optional
-`loginErrors` entries with `harness` and each login's failed `report`. Clients gate the feature
-on `server_info.features.usageSources`. The older `provider.usage.list` RPC maps the same reports
-for 0.10 clients and renders problems into its `error` string.
+`usage.list_reports` discovers accounts when called without IDs. With IDs, it
+refreshes known accounts without rediscovering identity. If a store switches
+accounts, the existing card shows the new login's quota until the next
+discovery. Reports are cached for five minutes; `forceRefresh` bypasses that
+cache. Entries carry `id`, `account.label`, and `fetchedAt`. Failed accounts
+also carry optional `loginErrors` entries with `harness` and each login's failed
+`report`. Clients gate the feature on `server_info.features.usageSources`. The
+older `provider.usage.list` RPC maps the same reports for 0.10 clients and
+renders problems into its `error` string.
 
 The source icon is a file path with the same rules as a provider icon.
 
 ## Entry point and cleanup
 
-Each present entry default-exports one contribution function and returns cleanup. Client entries
-receive `PluginClientContext`; server entries receive `PluginServerContext`. Client registration methods return idempotent removers, except header buttons and composer pills,
-which return `{ update, remove }` handles. The entry cleanup runs before Paseo removes remaining registrations.
+Each present entry default-exports one contribution function and returns
+cleanup. Client entries receive `PluginClientContext`; server entries receive
+`PluginServerContext`. Client registration methods return idempotent removers,
+except header buttons and composer pills, which return `{ update, remove }`
+handles. The entry cleanup runs before Paseo removes remaining registrations.
 
 ```ts
 import type { PluginClientContext } from "@getpaseo/plugin/client";
@@ -628,7 +728,10 @@ export default function contribute(client: PluginClientContext) {
 }
 ```
 
-Cleanup can be async. Release timers, watchers, sockets, and other resources created by the plugin. Paseo also removes registrations, unmounts surfaces, rejects pending RPCs, closes the plugin's daemon session, and stops its subprocess on reload, disable, removal, disconnect, or daemon shutdown.
+Cleanup can be async. Release timers, watchers, sockets, and other resources
+created by the plugin. Paseo also removes registrations, unmounts surfaces,
+rejects pending RPCs, closes the plugin's daemon session, and stops its
+subprocess on reload, disable, removal, disconnect, or daemon shutdown.
 
 ## Lifecycle hooks
 
@@ -655,7 +758,8 @@ Hooks run on the daemon while the plugin is enabled, even with no app connected.
 
 ### Change configuration and inject an MCP server
 
-Add this callback inside `contribute(server)`. Replace the placeholder URL with your MCP endpoint.
+Add this callback inside `contribute(server)`. Replace the placeholder URL with
+your MCP endpoint.
 
 ```ts
 server.before("agent.create", ({ request }) => {
@@ -691,8 +795,9 @@ server.before("agent.create", ({ request }) => {
 | Existing `mcpServers.search`                | Preserved by the spread       |
 | Existing `mcpServers.company`               | Replaced with the entry above |
 
-The selected provider validates `providerOptions` and must support the configured MCP servers.
-Explicit Codex sandbox and approval options override its mode presets.
+The selected provider validates `providerOptions` and must support the
+configured MCP servers. Explicit Codex sandbox and approval options override its
+mode presets.
 
 ### Inject environment variables on every session opening
 
@@ -708,8 +813,135 @@ server.before("agent.session_open", ({ request }) => {
 });
 ```
 
-This runs on create, resume, refresh, and import. To inject only on creation, set `env` in an
-`agent.create` callback instead.
+This runs on create, resume, refresh, and import. To inject only on creation,
+set `env` in an `agent.create` callback instead.
+
+### Attach tools to agents
+
+Define a tool in `index.server.ts` and attach it in
+`before("agent.session_open")`. This example gives `append_workspace_note` only
+to agents with the label `notes/enabled: "true"`:
+
+```ts
+import { writeFile } from "node:fs/promises";
+import path from "node:path";
+import { z } from "zod";
+import { defineAgentTool, type PluginServerContext } from "@getpaseo/plugin/server";
+
+const appendWorkspaceNote = defineAgentTool({
+  name: "append_workspace_note",
+  description: "Append a note to AGENT_NOTES.md in this agent's working directory.",
+  input: z.object({ note: z.string().min(1).describe("Note to append") }),
+  async execute({ note }, { agent, signal }) {
+    const notePath = path.join(agent.cwd, "AGENT_NOTES.md");
+    await writeFile(notePath, `${note}\n`, {
+      encoding: "utf8",
+      flag: "a",
+      signal,
+    });
+    return {
+      text: `Saved note to ${notePath}`,
+      structuredContent: { path: notePath },
+    };
+  },
+});
+
+export default function contribute(server: PluginServerContext) {
+  server.before("agent.session_open", ({ request }) => {
+    if (request.labels["notes/enabled"] !== "true") return;
+    return { ...request, tools: [...request.tools, appendWorkspaceNote] };
+  });
+  return () => {};
+}
+```
+
+Set the label when creating an agent with the SDK:
+
+```ts
+const agent = await paseo.agents.create({
+  config: { provider: "codex/gpt-5.4" },
+  cwd: "/projects/shop",
+  labels: { "notes/enabled": "true" },
+});
+```
+
+Select agents using any of the session-open request fields:
+
+| Select by        | Condition in the callback                    |
+| ---------------- | -------------------------------------------- |
+| Label            | `request.labels["notes/enabled"] === "true"` |
+| Provider         | `request.provider === "codex"`               |
+| Workspace        | `request.workspaceId === "workspace-456"`    |
+| Individual agent | `request.agentId === chosenAgentId`          |
+
+`request.tools` starts empty for each plugin. Each callback sees the tools
+returned by earlier callbacks in that plugin; replace the array to add or remove
+tools. Returning `undefined` preserves the request. Tools are ignored for
+`purpose: "history"`.
+
+Import `defineAgentTool`, `AgentToolDefinition`, `AgentToolContext`, and
+`AgentToolResult` from `@getpaseo/plugin/server`. The helper infers the
+validated input from your Zod schema:
+
+```ts
+declare function defineAgentTool<Input extends z.ZodType>(tool: {
+  name: string;
+  title?: string;
+  description: string;
+  input: Input;
+  execute(
+    input: z.output<Input>,
+    context: AgentToolContext,
+  ): AgentToolResult | Promise<AgentToolResult>;
+}): AgentToolDefinition;
+
+interface AgentToolResult {
+  text?: string;
+  structuredContent?: unknown;
+  isError?: boolean;
+}
+```
+
+| Execution context | Value                                                                                               |
+| ----------------- | --------------------------------------------------------------------------------------------------- |
+| `agent`           | Calling agent as a `PluginHookAgent`, including `id`, `workspaceId`, `provider`, `cwd`, and `title` |
+| `paseo`           | SDK connected to this daemon                                                                        |
+| `signal`          | Abort signal for this tool call; pass it to file operations or external requests                    |
+
+`execute` runs in the plugin process. Closures and the original Zod schema stay
+there; only tool metadata and call inputs/results cross the process boundary.
+Paseo validates input before calling `execute`. Invalid input returns schema
+issues to the agent. A thrown error becomes `{ isError: true, text: message }`
+and the plugin keeps running. Canceling the call or closing its transport aborts
+`signal` and discards the result. Tool calls have a 10 minute ceiling, separate
+from the 30 second hook timeout. Closing or reopening an agent session drops its
+old definitions.
+
+Return model-visible text in `text`. `structuredContent` must be
+JSON-serializable; when `text` is omitted, Paseo formats that value as text for
+the model. Set `isError: true` to report a tool error.
+
+Paseo delivers attached tools through its agent tool transport, using MCP or
+native registration as the provider supports. The same definition and callback
+work with either. Attached tools obey the
+[same gates as Paseo tools](/docs/mcp#limit-paseo-tools-by-provider). Only that
+agent sees them.
+
+Names must match `/^[a-z][a-z0-9_]*$/` and be at most 64 characters. A name
+colliding with a Paseo tool or another plugin's tool on the same agent fails the
+session open and names both owners. A duplicate name within one plugin also
+fails the session open. Agents the callback does not target are unaffected.
+
+| Change                                                         | When the agent receives it                                                                                                                                                                                 |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Start, stop, or reload a plugin declaring `agent.session_open` | Open sessions become stale. Each reopens before its next idle prompt; a running turn continues without interruption. The next prompt after that reopen reuses the session.                                 |
+| Change which agents the callback targets                       | Run `paseo plugin reload agent-tools` after editing this example, then send the agent a prompt when it is idle.                                                                                            |
+| Apply immediately                                              | Call `await paseo.agents.ref(id).reload({ requestId: "reload-notes" })`. `requestId` is optional. This reopens the provider session, reruns hooks with `reason: "refresh"`, and interrupts a running turn. |
+| Read the current snapshot                                      | Call `await paseo.agents.ref(id).refresh()`. This reads state without reopening the session.                                                                                                               |
+
+If an automatic reopen fails, the triggering prompt fails with that error. See
+the
+[complete agent-tools example](https://github.com/getpaseo/paseo/tree/main/plugin-examples/agent-tools).
 
 ### Choose workspace isolation
 
@@ -730,15 +962,18 @@ server.before("workspace.create", ({ request }) => {
 });
 ```
 
-**Result:** an explicit directory creation request becomes a worktree request. Existing workspaces
-and directory lookup/import operations are unaffected.
+**Result:** an explicit directory creation request becomes a worktree request.
+Existing workspaces and directory lookup/import operations are unaffected.
 
 ### Send a follow-up when a turn ends
 
-Copy [server/inspect.ts](https://github.com/getpaseo/paseo/blob/main/plugin-examples/lifecycle-actions/server/inspect.ts)
-into your plugin. The helper imports types from `@getpaseo/protocol/agent-types`; add
-`@getpaseo/protocol` at the same version as your plugin SDK to your development dependencies
-and install them before loading the plugin. `latestOutputText` joins text chunks after the latest user message.
+Copy
+[server/inspect.ts](https://github.com/getpaseo/paseo/blob/main/plugin-examples/lifecycle-actions/server/inspect.ts)
+into your plugin. The helper imports types from
+`@getpaseo/protocol/agent-types`; add `@getpaseo/protocol` at the same version
+as your plugin SDK to your development dependencies and install them before
+loading the plugin. `latestOutputText` joins text chunks after the latest user
+message.
 
 ```ts
 import type { PluginServerContext } from "@getpaseo/plugin/server";
@@ -768,15 +1003,18 @@ Turn ends: "out of credits"
   → a new turn starts
 ```
 
-The handler fetches only the last 20 timeline items. Output before that page is not inspected.
-Use `cursor` and `direction` to page further when your plugin needs more history.
+The handler fetches only the last 20 timeline items. Output before that page is
+not inspected. Use `cursor` and `direction` to page further when your plugin
+needs more history.
 
-This sends a new message with the existing SDK. Persistent matches keep sending follow-ups;
-add limits or delays in your plugin when needed. Attachments and tool effects are not replayed.
+This sends a new message with the existing SDK. Persistent matches keep sending
+follow-ups; add limits or delays in your plugin when needed. Attachments and
+tool effects are not replayed.
 
 ### Answer a permission request
 
-Using `shellCommand` from the same [helper file](https://github.com/getpaseo/paseo/blob/main/plugin-examples/lifecycle-actions/server/inspect.ts):
+Using `shellCommand` from the same
+[helper file](https://github.com/getpaseo/paseo/blob/main/plugin-examples/lifecycle-actions/server/inspect.ts):
 
 ```ts
 import type { PluginServerContext } from "@getpaseo/plugin/server";
@@ -793,7 +1031,10 @@ export default function contribute(server: PluginServerContext) {
     if (/\brm\s+-rf\b/.test(command)) {
       await agent.respondToPermission({
         requestId: event.request.id,
-        response: { behavior: "deny", message: "Recursive deletion is blocked." },
+        response: {
+          behavior: "deny",
+          message: "Recursive deletion is blocked.",
+        },
       });
       return;
     }
@@ -817,8 +1058,9 @@ export default function contribute(server: PluginServerContext) {
 | Other command or request | Left pending for the user |
 | Already-resolved request | SDK response fails        |
 
-The regex is an example policy, not a shell parser. Permission requests can also be questions,
-plans, and mode changes; requesting permission does not end the turn.
+The regex is an example policy, not a shell parser. Permission requests can also
+be questions, plans, and mode changes; requesting permission does not end the
+turn.
 
 ### Events
 
@@ -834,11 +1076,13 @@ plans, and mode changes; requesting permission does not end the turn.
 | `workspace.created`          | `workspace`                                             | Record created; directory available                |
 | `workspace.archived`         | `workspace`                                             | Archive state is saved                             |
 
-Agent events exclude the daemon's private disposable helpers. Public background workspaces and
-their ordinary agents run the same lifecycle hooks as other workspaces. Archive events can precede
-runtime/worktree cleanup; observe lifecycle completion separately when cleanup matters.
+Agent events exclude the daemon's private disposable helpers. Public background
+workspaces and their ordinary agents run the same lifecycle hooks as other
+workspaces. Archive events can precede runtime/worktree cleanup; observe
+lifecycle completion separately when cleanup matters.
 
-`agent.turn_ended.timeline` is deprecated and always empty. Fetch history on demand with
+`agent.turn_ended.timeline` is deprecated and always empty. Fetch history on
+demand with
 `context.paseo.agents.ref(event.agent.id).timeline.refetch({ direction: "tail", limit: 20 })`.
 The hook payload size does not grow with conversation history.
 
@@ -878,11 +1122,11 @@ type PluginTurnOutcome =
 
 ### Before hooks
 
-| Name                 | Request fields                                                          | Editable                                |
-| -------------------- | ----------------------------------------------------------------------- | --------------------------------------- |
-| `agent.create`       | `config`, optional `env`                                                | Public agent config except `cwd`; `env` |
-| `agent.session_open` | `agentId`, `workspaceId`, `provider`, `cwd`, `reason`, `purpose`, `env` | Only `env`                              |
-| `workspace.create`   | `source`, optional `title`, `firstAgentContext`                         | Entire explicit creation request        |
+| Name                 | Request fields                                                                                                   | Editable                                |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `agent.create`       | `config`, optional `env`                                                                                         | Public agent config except `cwd`; `env` |
+| `agent.session_open` | `agentId`, `workspaceId`, `provider`, `cwd`, read-only `title` and `labels`, `reason`, `purpose`, `env`, `tools` | `env` and `tools`                       |
+| `workspace.create`   | `source`, optional `title`, `firstAgentContext`                                                                  | Entire explicit creation request        |
 
 **`agent.create.config`** uses `AgentSessionConfig`:
 
@@ -903,6 +1147,9 @@ type PluginTurnOutcome =
   "workspaceId": "workspace-456",
   "provider": "codex",
   "cwd": "/projects/shop",
+  "title": "Workspace notes",
+  "labels": { "notes/enabled": "true" },
+  "tools": [],
   "reason": "resume",
   "purpose": "interactive",
   "env": { "COMPANY_ENV": "development" }
@@ -912,6 +1159,9 @@ type PluginTurnOutcome =
 | Field         | Values                                                                                                                  |
 | ------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `workspaceId` | String or `null`                                                                                                        |
+| `title`       | Read-only string or `null`; creation title on create, stored title on resume.                                           |
+| `labels`      | Read-only string map; creation labels on create, stored labels on resume.                                               |
+| `tools`       | Editable `AgentToolDefinition[]`, local to this plugin. See [Attach tools to agents](#attach-tools-to-agents).          |
 | `reason`      | `create`, `resume`, `refresh`, `import`                                                                                 |
 | `purpose`     | `interactive`, `history`                                                                                                |
 | `env`         | Launch override map; excludes the daemon's inherited environment. Replace the map to add, replace, or remove overrides. |
@@ -923,7 +1173,7 @@ Creation request
   → agent.create hooks (plugin-ID order; registration order within each plugin)
   → resolve defaults and validate provider configuration
   → derive launch configuration with Paseo runtime tools and daemon prompt
-  → agent.session_open hooks (same ordering; env only)
+  → agent.session_open hooks (same ordering; env and plugin-local tools)
   → set PASEO_AGENT_ID and PASEO_AGENT_CWD
   → open provider session and save agent configuration
 ```
@@ -935,8 +1185,8 @@ Creation request
 | `undefined`                                             | Unchanged request                                   |
 | Throws or returns invalid data                          | Operation fails; later callbacks do not run         |
 
-No automatic deep merge. Later callbacks can overwrite earlier values. Agent configuration is
-saved; environment overrides are not persisted with it.
+No automatic deep merge. Later callbacks can overwrite earlier values. Agent
+configuration is saved; environment overrides are not persisted with it.
 
 ### Context and cleanup
 
@@ -960,13 +1210,16 @@ saved; environment overrides are not persisted with it.
 | [lifecycle-logger](https://github.com/getpaseo/paseo/tree/main/plugin-examples/lifecycle-logger)       | All eleven hooks; JSON logs with environment values redacted                 |
 | [lifecycle-actions](https://github.com/getpaseo/paseo/tree/main/plugin-examples/lifecycle-actions)     | Follow-ups, permissions, environment, provider switching, worktree selection |
 | [agent-configuration](https://github.com/getpaseo/paseo/tree/main/plugin-examples/agent-configuration) | MCP injection and Codex sandbox/approval options                             |
+| [agent-tools](https://github.com/getpaseo/paseo/tree/main/plugin-examples/agent-tools)                 | Label-targeted tools and file operations in the plugin process               |
 
-Read logger output with `paseo plugin logs lifecycle-logger` or the host's `daemon.log`.
+Read logger output with `paseo plugin logs lifecycle-logger` or the host's
+`daemon.log`.
 
 ## Screens and sidebar items
 
-A screen is a full page of plugin UI. A sidebar item is a component Paseo renders in the sidebar
-header or footer; it decides what a press does. Register the screen, then an item that opens it:
+A screen is a full page of plugin UI. A sidebar item is a component Paseo
+renders in the sidebar header or footer; it decides what a press does. Register
+the screen, then an item that opens it:
 
 `client/main.tsx`:
 
@@ -1016,7 +1269,11 @@ function MainItem({ currentScreen, openScreen }: PluginSidebarItemProps) {
 
 export default function contribute(client: PluginClientContext) {
   client.addScreen({ id: "main", title: "My plugin", Component: Main });
-  client.addSidebarHeaderItem({ id: "main", title: "My plugin", Component: MainItem });
+  client.addSidebarHeaderItem({
+    id: "main",
+    title: "My plugin",
+    Component: MainItem,
+  });
   return () => {};
 }
 ```
@@ -1031,31 +1288,35 @@ export default function contribute(client: PluginClientContext) {
 | `params`     | The params the screen was opened with, as string keys and values. `{}` when none.                                                                                                                                                                                                                                                 |
 | `navigation` | Optional client navigation. `openAgent({ agentId, serverId? })` and `openWorkspace({ workspaceId, serverId? })` open targets on `serverId`, or on the selected host when omitted. `openBrowser({ url, workspaceId, serverId? })` is available only on Electron; see [links and browsers](#external-links-and-workspace-browsers). |
 
-Paseo owns the route, header, close action, host picker, error boundary, and query client. The plugin owns the screen body.
+Paseo owns the route, header, close action, host picker, error boundary, and
+query client. The plugin owns the screen body.
 
-`addScreen({ id, title, Component })` registers a screen. `title` is the screen header's title: a
-[display text](#runtime-translations), or a function that takes the screen's params and returns
-display text. The function runs again when params or language change. Invalid or empty literal
-titles are rejected. A title function that throws or resolves to an empty string shows the screen
-ID instead; the screen still renders.
+`addScreen({ id, title, Component })` registers a screen. `title` is the screen
+header's title: a [display text](#runtime-translations), or a function that
+takes the screen's params and returns display text. The function runs again when
+params or language change. Invalid or empty literal titles are rejected. A title
+function that throws or resolves to an empty string shows the screen ID instead;
+the screen still renders.
 
-`openScreen({ screenId, params })` opens a screen with params, such as the bot a bot screen shows.
-Params live in the screen's URL query, so a reload, back and forward, and a link to the screen keep
-them. Any string key works; values must be strings, and anything else throws. Opening the same
-screen with other params shows the new params.
+`openScreen({ screenId, params })` opens a screen with params, such as the bot a
+bot screen shows. Params live in the screen's URL query, so a reload, back and
+forward, and a link to the screen keep them. Any string key works; values must
+be strings, and anything else throws. Opening the same screen with other params
+shows the new params.
 
 ### Sidebar items
 
-`addSidebarHeaderItem` adds a row to the list at the top of the sidebar. `addSidebarFooterItem`
-adds a row to the footer, between **Add project** and the footer's icon row. The icon row is fixed;
-plugins can't add to it. Both take `{ id, title, Component }`. `title` labels the item in
-Settings > Sidebar, where users reorder and hide items, and is the default label and accessibility
-label of `SidebarRow`. Settings shows a generic plugin icon for these items; a row from the
-deprecated `addSidebarItem` keeps its registered icon.
+`addSidebarHeaderItem` adds a row to the list at the top of the sidebar.
+`addSidebarFooterItem` adds a row to the footer, between **Add project** and the
+footer's icon row. The icon row is fixed; plugins can't add to it. Both take
+`{ id, title, Component }`. `title` labels the item in Settings > Sidebar, where
+users reorder and hide items, and is the default label and accessibility label
+of `SidebarRow`. Settings shows a generic plugin icon for these items; a row
+from the deprecated `addSidebarItem` keeps its registered icon.
 
-With the plugin on several hosts, an item renders from the host of the screen the app shows. Off a
-host's screens, it uses the host last picked in one of the plugin's screens or last opened from one
-of its items, else the first host.
+With the plugin on several hosts, an item renders from the host of the screen
+the app shows. Off a host's screens, it uses the host last picked in one of the
+plugin's screens or last opened from one of its items, else the first host.
 
 `Component` receives `PluginSidebarItemProps`:
 
@@ -1066,8 +1327,8 @@ of its items, else the first host.
 | `openScreen(input)`       | Opens one of this plugin's screens: `{ screenId, params? }`. Unknown screen IDs throw.        |
 | `openPopover(Content)`    | Opens `Content` anchored to the pressed row on wide layouts and as a bottom sheet on compact. |
 
-`Content` receives `theme`, `host`, `layout`, `close()`, and `openScreen(input)`. Opening a screen
-closes the popover.
+`Content` receives `theme`, `host`, `layout`, `close()`, and
+`openScreen(input)`. Opening a screen closes the popover.
 
 Render the item with the sidebar kit from `@getpaseo/plugin/client/ui`:
 
@@ -1076,8 +1337,9 @@ Render the item with the sidebar kit from `@getpaseo/plugin/client/ui`:
 | `SidebarRow`       | Required `onPress`; optional `icon` (any [icon](#icons) form), `label`, `active`, `trailing`, `id`. A full-width row. `trailing` renders beside the row's pressable, so a button in it presses on its own; a press elsewhere in it presses the row. `id` tells rows of one item apart in test IDs. |
 | `SidebarSeparator` | No props. The sidebar's separator line, between groups of rows.                                                                                                                                                                                                                                    |
 
-A popover anchors to the row that was pressed, whether the press landed on the row or on its
-`trailing` content, so a per-row "More" button opens its popover next to its own row.
+A popover anchors to the row that was pressed, whether the press landed on the
+row or on its `trailing` content, so a per-row "More" button opens its popover
+next to its own row.
 
 ```tsx
 import type { PluginSidebarItemProps, PluginPopoverProps } from "@getpaseo/plugin/client";
@@ -1103,9 +1365,10 @@ An item that throws renders nothing; the rest of the sidebar keeps working.
 
 #### Several rows in one item
 
-An item's `Component` may return a fragment, an array, or `null`, so one item can render a list
-that changes at runtime. Settings lists the item once, and it moves and hides as one block. This
-item shows a row per bot and opens the bot's screen with its ID as a param:
+An item's `Component` may return a fragment, an array, or `null`, so one item
+can render a list that changes at runtime. Settings lists the item once, and it
+moves and hides as one block. This item shows a row per bot and opens the bot's
+screen with its ID as a param:
 
 ```tsx
 import type {
@@ -1147,15 +1410,19 @@ export default function contribute(client: PluginClientContext) {
     title: (params) => botName(params.botId) ?? "Bot",
     Component: BotScreen,
   });
-  client.addSidebarHeaderItem({ id: "bots", title: "Bots", Component: BotsItem });
+  client.addSidebarHeaderItem({
+    id: "bots",
+    title: "Bots",
+    Component: BotsItem,
+  });
   return () => {};
 }
 ```
 
 #### Add and remove items at runtime
 
-`addSidebarHeaderItem` and `addSidebarFooterItem` work after the entry returns. Each returns a
-remover; the item appears and disappears without a reload:
+`addSidebarHeaderItem` and `addSidebarFooterItem` work after the entry returns.
+Each returns a remover; the item appears and disappears without a reload:
 
 ```tsx
 let removeAlerts: (() => void) | null = null;
@@ -1176,8 +1443,9 @@ function hideAlerts() {
 
 ## Host UI
 
-Import Paseo-owned UI from `@getpaseo/plugin/client/ui` in client code. This example
-opens a controlled modal, renders a host icon, and confirms the action with a toast:
+Import Paseo-owned UI from `@getpaseo/plugin/client/ui` in client code. This
+example opens a controlled modal, renders a host icon, and confirms the action
+with a toast:
 
 ```tsx
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
@@ -1222,8 +1490,8 @@ export function IssueActions({ theme }: PluginSurfaceProps) {
 
 ### Markdown
 
-Import `Markdown` from `@getpaseo/plugin/client/ui` to render a string with Paseo's
-Markdown presentation on web, iOS, and Android:
+Import `Markdown` from `@getpaseo/plugin/client/ui` to render a string with
+Paseo's Markdown presentation on web, iOS, and Android:
 
 ```tsx
 import { Markdown } from "@getpaseo/plugin/client/ui";
@@ -1231,19 +1499,19 @@ import { Markdown } from "@getpaseo/plugin/client/ui";
 <Markdown>{"## Review\n\nThe checks **passed**."}</Markdown>;
 ```
 
-`children` is the only prop and must be a string. Updating it renders the new content
-immediately; an empty string renders nothing. The host supplies theme, text selection,
-code blocks, tables, diagrams, and link handling. Workspace file links and images use
-workspace context when the containing surface supplies it.
+`children` is the only prop and must be a string. Updating it renders the new
+content immediately; an empty string renders nothing. The host supplies theme,
+text selection, code blocks, tables, diagrams, and link handling. Workspace file
+links and images use workspace context when the containing surface supplies it.
 
-The component adds no page padding or scroll container. Use a surrounding layout or
-scroll view when needed. Fetching content and showing loading or error states belong
-to your plugin.
+The component adds no page padding or scroll container. Use a surrounding layout
+or scroll view when needed. Fetching content and showing loading or error states
+belong to your plugin.
 
 ### Modal
 
-`Modal` uses a bottom sheet on compact layouts and a centered dialog otherwise. The plugin owns
-the `open` state.
+`Modal` uses a bottom sheet on compact layouts and a centered dialog otherwise.
+The plugin owns the `open` state.
 
 | Prop           | Type                      | Required | Behavior                                     |
 | -------------- | ------------------------- | -------- | -------------------------------------------- |
@@ -1262,35 +1530,41 @@ the `open` state.
 | `contentContainerStyle` | `StyleProp<ViewStyle>` | Padding 24, gap 16 | Overrides the content layout. Set `padding: 0, gap: 0` for edge-to-edge rows.     |
 | `scrollable`            | `boolean`              | `true`             | The host scrolls the body. Set `false` for a bounded body with your own scroller. |
 
-A plain `Modal.Content` is already padded and scrollable. Avoid adding a second padded wrapper
-unless you want another inset. Body styles leave the host header, drag handle, and dismissal controls
-intact. The host reserves bottom safe-area space on compact native layouts; setting content padding
-to zero removes the decorative inset, not that space. Keyboard clearance is handled separately.
+A plain `Modal.Content` is already padded and scrollable. Avoid adding a second
+padded wrapper unless you want another inset. Body styles leave the host header,
+drag handle, and dismissal controls intact. The host reserves bottom safe-area
+space on compact native layouts; setting content padding to zero removes the
+decorative inset, not that space. Keyboard clearance is handled separately.
 
-With `scrollable={false}`, the body fills the available sheet height, and the centered dialog uses
-85% of the available height. Use `flex: 1, minHeight: 0` on your list. Default scrolling dialogs stay
-content-sized on wide layouts. Presentation follows window size, including narrow desktop windows
-and wide tablets.
+With `scrollable={false}`, the body fills the available sheet height, and the
+centered dialog uses 85% of the available height. Use `flex: 1, minHeight: 0` on
+your list. Default scrolling dialogs stay content-sized on wide layouts.
+Presentation follows window size, including narrow desktop windows and wide
+tablets.
 
-The close button, backdrop, platform back action, web Escape key, and compact sheet gesture dismiss
-the modal. Dismissal calls `onOpenChange(false)`; the plugin must update `open` to close it.
+The close button, backdrop, platform back action, web Escape key, and compact
+sheet gesture dismiss the modal. Dismissal calls `onOpenChange(false)`; the
+plugin must update `open` to close it.
 
-Modal children keep the plugin runtime context. `usePaseo`, `useRpc`, `useWorkspace`, and
-`useAgent` work inside them.
+Modal children keep the plugin runtime context. `usePaseo`, `useRpc`,
+`useWorkspace`, and `useAgent` work inside them.
 
 ### Scrolling
 
-Import `ScrollView` and `FlatList` from `@getpaseo/plugin/client/ui` when content can appear in a
-Paseo modal. They accept React Native props and refs and integrate with the sheet's gestures. Outside
-a sheet they use ordinary React Native scrolling. Do not import bottom-sheet libraries directly.
+Import `ScrollView` and `FlatList` from `@getpaseo/plugin/client/ui` when
+content can appear in a Paseo modal. They accept React Native props and refs and
+integrate with the sheet's gestures. Outside a sheet they use ordinary React
+Native scrolling. Do not import bottom-sheet libraries directly.
 
-Use one vertical scroll owner: either the default modal body, or your own list with
-`scrollable={false}`. A fixed-height vertical list nested inside the default scrolling body can compete
-with the sheet for gestures on Android. Horizontal scrolling can coexist with the host's vertical body.
+Use one vertical scroll owner: either the default modal body, or your own list
+with `scrollable={false}`. A fixed-height vertical list nested inside the
+default scrolling body can compete with the sheet for gestures on Android.
+Horizontal scrolling can coexist with the host's vertical body.
 
-Both the default body and SDK lists share native sheet gestures: drag up to expand before scrolling;
-drag down at the top of the list to collapse or dismiss. `scrollable={false}` removes the host's scroll
-container without changing these gestures. Expand the sheet before using list methods such as
+Both the default body and SDK lists share native sheet gestures: drag up to
+expand before scrolling; drag down at the top of the list to collapse or
+dismiss. `scrollable={false}` removes the host's scroll container without
+changing these gestures. Expand the sheet before using list methods such as
 `scrollToEnd`; the sheet locks list offsets below its largest height.
 
 ```tsx
@@ -1314,14 +1588,16 @@ import { Text } from "react-native";
 </Modal.Content>;
 ```
 
-For horizontal tabs, place `<ScrollView horizontal style={{ flexGrow: 0 }}>…</ScrollView>` inside the
+For horizontal tabs, place
+`<ScrollView horizontal style={{ flexGrow: 0 }}>…</ScrollView>` inside the
 default `Modal.Content`. Keep the content's vertical scrolling on the host.
 
 ### Copy and paste
 
-`copyText(text): Promise<void>` writes to the clipboard on the device running the app. Call it from a
-user action and await it before reporting success. It rejects if the platform denies copying or the
-clipboard is unavailable; browser permissions and secure-context requirements still apply.
+`copyText(text): Promise<void>` writes to the clipboard on the device running
+the app. Call it from a user action and await it before reporting success. It
+rejects if the platform denies copying or the clipboard is unavailable; browser
+permissions and secure-context requirements still apply.
 
 ```tsx
 import { copyText, useToast } from "@getpaseo/plugin/client/ui";
@@ -1338,16 +1614,20 @@ async function copyResult() {
 }
 ```
 
-Programmatic copying and native text selection are separate interactions. Use `<Text selectable>`
-for long-press selection and OS Copy. Import `TextInput` from `@getpaseo/plugin/client/ui` for modal forms. It accepts React Native
-input props and refs, supports OS Paste, and registers focus with the native sheet so the keyboard
-can raise the form. Outside a sheet it uses the ordinary input. A plain React Native input supports
-Paste too, but does not register focus with the sheet; the keyboard can cover it. No clipboard read
-API is needed for OS Paste. Avoid DOM clipboard code in native plugins and the deprecated
-`Clipboard` export from `react-native`.
+Programmatic copying and native text selection are separate interactions. Use
+`<Text selectable>` for long-press selection and OS Copy. Import `TextInput`
+from `@getpaseo/plugin/client/ui` for modal forms. It accepts React Native input
+props and refs, supports OS Paste, and registers focus with the native sheet so
+the keyboard can raise the form. Outside a sheet it uses the ordinary input. A
+plain React Native input supports Paste too, but does not register focus with
+the sheet; the keyboard can cover it. No clipboard read API is needed for OS
+Paste. Avoid DOM clipboard code in native plugins and the deprecated `Clipboard`
+export from `react-native`.
 
-The runnable [modal UI example](https://github.com/getpaseo/paseo/tree/main/plugin-examples/modal-ui)
-contains a padded form, full-width rows, a virtualized list, horizontal tabs, and a copy/paste input.
+The runnable
+[modal UI example](https://github.com/getpaseo/paseo/tree/main/plugin-examples/modal-ui)
+contains a padded form, full-width rows, a virtualized list, horizontal tabs,
+and a copy/paste input.
 
 ### Toasts
 
@@ -1365,7 +1645,8 @@ contains a padded form, full-width rows, a virtualized list, horizontal tabs, an
 | `variant`    | `"default" \| "info" \| "success" \| "warning" \| "error"` | `"default"` |
 | `durationMs` | `number`                                                   | `2200`      |
 
-Showing another toast replaces the currently visible toast. An empty message is ignored.
+Showing another toast replaces the currently visible toast. An empty message is
+ignored.
 
 ### Icons
 
@@ -1378,21 +1659,23 @@ Every contribution `icon` field takes one of three forms, typed `PluginIcon` in
 | Inline SVG  | `icon: { svg: reviewIcon }` | A brand mark or an icon Lucide does not have.       |
 | Component   | `icon: ReviewBadge`         | An icon that changes with state, such as a counter. |
 
-Attachment sources take a Lucide name or inline SVG (`PluginSerializableIcon`), because each
-attached item stores its source's icon.
+Attachment sources take a Lucide name or inline SVG (`PluginSerializableIcon`),
+because each attached item stores its source's icon.
 
-Paseo validates the icon when the contribution registers. An unknown Lucide name or an SVG that
-breaks a rule fails the plugin with the reason:
+Paseo validates the icon when the contribution registers. An unknown Lucide name
+or an SVG that breaks a rule fails the plugin with the reason:
 
 ```text
 Workspace panel review has an invalid icon: script elements are not allowed
 ```
 
-Paseo draws inline SVG at the surface's icon size and passes the surface's icon color as
-`currentColor`. Paint with `currentColor` to follow the theme; fixed fills keep their colors.
+Paseo draws inline SVG at the surface's icon size and passes the surface's icon
+color as `currentColor`. Paint with `currentColor` to follow the theme; fixed
+fills keep their colors.
 
-A component receives `PluginIconProps`, `{ size, color }`, and renders within that size. Header
-buttons and composer pills pass [`PluginButtonIconProps`](#custom-icons-and-popover-content).
+A component receives `PluginIconProps`, `{ size, color }`, and renders within
+that size. Header buttons and composer pills pass
+[`PluginButtonIconProps`](#custom-icons-and-popover-content).
 
 #### SVG rules
 
@@ -1401,7 +1684,8 @@ Inline SVG, provider icons, and usage-source icons follow the same rules:
 - One `<svg>` document, no larger than 64 KiB.
 - No `<script>`, `<style>`, or `<foreignObject>` elements.
 - No event-handler attributes such as `onclick`, and no `javascript:` URLs.
-- `href` and `xlink:href` point only at fragments in the same document, such as `#mark`.
+- `href` and `xlink:href` point only at fragments in the same document, such as
+  `#mark`.
 
 #### Ship SVG markup
 
@@ -1414,8 +1698,9 @@ export const reviewIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentC
 </svg>`;
 ```
 
-Or put an `.svg` file in `client/` and import it. The plugin compiler bundles the file's markup as a
-string. Declare the module once so TypeScript accepts the import:
+Or put an `.svg` file in `client/` and import it. The plugin compiler bundles
+the file's markup as a string. Declare the module once so TypeScript accepts the
+import:
 
 ```ts
 // client/svg.d.ts
@@ -1429,13 +1714,17 @@ declare module "*.svg" {
 // index.client.tsx
 import reviewIcon from "./client/review.svg";
 
-client.addWorkspacePanel({ id: "review", title: "Review", icon: { svg: reviewIcon } /* … */ });
+client.addWorkspacePanel({
+  id: "review",
+  title: "Review",
+  icon: { svg: reviewIcon } /* … */,
+});
 ```
 
 #### Render an icon
 
-`Icon` from `@getpaseo/plugin/client/ui` draws an icon in your own UI. Plugin bundles do
-not import `lucide-react-native` or `react-native-svg`.
+`Icon` from `@getpaseo/plugin/client/ui` draws an icon in your own UI. Plugin
+bundles do not import `lucide-react-native` or `react-native-svg`.
 
 | Prop    | Type         | Required         | Behavior                                                     |
 | ------- | ------------ | ---------------- | ------------------------------------------------------------ |
@@ -1448,9 +1737,10 @@ An unknown name or an SVG that breaks a rule renders nothing.
 
 ## Timeline items
 
-A plugin can replace an agent timeline entry with its own data and React Native renderer. Both
-registrations are client contributions. Paseo applies the transformer while building the render
-model, including every live streaming update.
+A plugin can replace an agent timeline entry with its own data and React Native
+renderer. Both registrations are client contributions. Paseo applies the
+transformer while building the render model, including every live streaming
+update.
 
 ```tsx
 import type { PluginClientContext, PluginTimelineItemProps } from "@getpaseo/plugin/client";
@@ -1490,32 +1780,38 @@ export default function contribute(client: PluginClientContext) {
 }
 ```
 
-`query.itemType` is the stable, coarse selector. Inspect the selected item inside `transform` for
-provider- or tool-specific recognition. Returning `undefined` keeps the original entry. Returning
-`items` replaces it; an empty array removes it. Item `data` must be JSON-compatible. The `phase`
-input is `"streaming"` for the live assistant message, running tool calls, and loading reasoning;
-it is `"complete"` for committed or fetched messages and finished tools or reasoning.
-Assistant and reasoning callbacks receive the full accumulated text on each update, including
-paragraph separators. Paseo invokes transformers before splitting native Markdown or grouping
-tools in Overview. A claimed assistant message remains one source item throughout streaming;
-return `undefined` until recognizable if the first text is insufficient to identify it.
-Each replacement may set an optional plugin-local `id`; otherwise Paseo uses its index within that
-source item's output.
+`query.itemType` is the stable, coarse selector. Inspect the selected item
+inside `transform` for provider- or tool-specific recognition. Returning
+`undefined` keeps the original entry. Returning `items` replaces it; an empty
+array removes it. Item `data` must be JSON-compatible. The `phase` input is
+`"streaming"` for the live assistant message, running tool calls, and loading
+reasoning; it is `"complete"` for committed or fetched messages and finished
+tools or reasoning. Assistant and reasoning callbacks receive the full
+accumulated text on each update, including paragraph separators. Paseo invokes
+transformers before splitting native Markdown or grouping tools in Overview. A
+claimed assistant message remains one source item throughout streaming; return
+`undefined` until recognizable if the first text is insufficient to identify it.
+Each replacement may set an optional plugin-local `id`; otherwise Paseo uses its
+index within that source item's output.
 
-Renderers receive `agentId`, `item`, `timestamp`, `theme`, `host`, and `layout`. Paseo validates
-`item.data` with the registered schema before rendering. Keep transformers synchronous and
-deterministic. Paseo memoizes results by source-item reference and derives replacement identity from
-the source row, so updates to one streaming item do not remount its renderer. Render `<StreamedText text={item.data.text} phase={item.data.phase} />` from
-`@getpaseo/plugin/client/ui` for plain text paced like Paseo's assistant rows. It accepts React Native
-`Text` props (including `style`) and supplies assistant typography and foreground color by default.
-Completion displays the full text immediately; the host owns pacing while streaming. Requires Paseo 0.13 or later.
+Renderers receive `agentId`, `item`, `timestamp`, `theme`, `host`, and `layout`.
+Paseo validates `item.data` with the registered schema before rendering. Keep
+transformers synchronous and deterministic. Paseo memoizes results by
+source-item reference and derives replacement identity from the source row, so
+updates to one streaming item do not remount its renderer. Render
+`<StreamedText text={item.data.text} phase={item.data.phase} />` from
+`@getpaseo/plugin/client/ui` for plain text paced like Paseo's assistant rows.
+It accepts React Native `Text` props (including `style`) and supplies assistant
+typography and foreground color by default. Completion displays the full text
+immediately; the host owns pacing while streaming. Requires Paseo 0.13 or later.
 
-Chat find (Ctrl or Cmd+F) finds and highlights text in replacement rows when the query also
-matches the original message. The host searches the original prompt text or the assistant reply
-with Markdown syntax removed, then the app counts matches in the text your renderer draws.
-Text added only by your renderer is not independently indexed. Matches stay within a rendered
-block, and find skips buttons, icons, and anything with `aria-hidden="true"`. Find only runs on
-the web and desktop apps.
+Chat find (Ctrl or Cmd+F) finds and highlights text in replacement rows when the
+query also matches the original message. The host searches the original prompt
+text or the assistant reply with Markdown syntax removed, then the app counts
+matches in the text your renderer draws. Text added only by your renderer is not
+independently indexed. Matches stay within a rendered block, and find skips
+buttons, icons, and anything with `aria-hidden="true"`. Find only runs on the
+web and desktop apps.
 
 ### Append a timeline row from the daemon
 
@@ -1543,15 +1839,19 @@ async function publishReview(agentId: string, { paseo }: PluginHandlerContext) {
 | `version` | positive integer | Yes      | Selects the renderer contract version.                         |
 | `data`    | JSON-compatible  | Yes      | Renderer payload, at most 64 KiB after JSON serialization.     |
 
-The daemon stamps `pluginId` from the calling plugin session and rejects this RPC from non-plugin
-sessions. The row appears live, survives timeline refetches, and keeps only the latest value for the
-same plugin and `id`. If its renderer is missing, Paseo shows the existing unavailable row. Daemons
-reject `data` over the limit rather than truncating it. Daemons that support this operation
+The daemon stamps `pluginId` from the calling plugin session and rejects this
+RPC from non-plugin sessions. The row appears live, survives timeline refetches,
+and keeps only the latest value for the same plugin and `id`. If its renderer is
+missing, Paseo shows the existing unavailable row. Daemons reject `data` over
+the limit rather than truncating it. Daemons that support this operation
 advertise `server_info.features.pluginTimelineItems`.
 
 ## Theme and layout
 
-Plugin UI runs on desktop, browser, iOS, and Android, across every Paseo theme. `theme` is a typed `PluginTheme` mapped from the active host theme. Color and spacing must come from those props. Hardcoded colors and unstyled `Text` break when the host theme changes.
+Plugin UI runs on desktop, browser, iOS, and Android, across every Paseo theme.
+`theme` is a typed `PluginTheme` mapped from the active host theme. Color and
+spacing must come from those props. Hardcoded colors and unstyled `Text` break
+when the host theme changes.
 
 Recreate styles when `theme` or `layout.compact` changes.
 
@@ -1571,14 +1871,17 @@ Recreate styles when `theme` or `layout.compact` changes.
 | `layout.compact`                | Padding and stacking       | `true` on mobile and narrow windows |
 | `layout.platform`               | Platform-specific behavior | `ios`, `android`, or `web`          |
 
-Do not hardcode `#000`, `#fff`, or React Native's default text color. Primary copy uses `foreground`. Labels use `foregroundMuted`. Tighten padding when `layout.compact` is true.
+Do not hardcode `#000`, `#fff`, or React Native's default text color. Primary
+copy uses `foreground`. Labels use `foregroundMuted`. Tighten padding when
+`layout.compact` is true.
 
-Workspace and agent panels receive the same `theme`, `layout`, and optional `navigation` fields.
+Workspace and agent panels receive the same `theme`, `layout`, and optional
+`navigation` fields.
 
 ## Contribute a theme
 
-`addTheme` adds a light or dark theme to Settings → Appearance, listed under the built-ins by its
-`name`. A theme is data, so it needs no component file:
+`addTheme` adds a light or dark theme to Settings → Appearance, listed under the
+built-ins by its `name`. A theme is data, so it needs no component file:
 
 ```ts
 import type { PluginClientContext } from "@getpaseo/plugin/client";
@@ -1603,9 +1906,10 @@ export default function contribute(client: PluginClientContext) {
 }
 ```
 
-Every color is a hex string; anything else fails to load. Paseo expands the palette into the full
-token set the built-in dark themes use, so a contributed theme covers panels, menus, diffs, status
-colors, and the terminal without listing them.
+Every color is a hex string; anything else fails to load. Paseo expands the
+palette into the full token set the built-in dark themes use, so a contributed
+theme covers panels, menus, diffs, status colors, and the terminal without
+listing them.
 
 | Color             | Becomes                                                           |
 | ----------------- | ----------------------------------------------------------------- |
@@ -1618,36 +1922,40 @@ colors, and the terminal without listing them.
 | `mutedForeground` | Secondary text                                                    |
 | `ring`            | Focus rings, scrollbars, and terminal bright black                |
 
-`appearance` is `"light"` or `"dark"`. Paseo uses it to select the matching surface, status,
-diff, syntax, terminal, and shadow derivation.
+`appearance` is `"light"` or `"dark"`. Paseo uses it to select the matching
+surface, status, diff, syntax, terminal, and shadow derivation.
 
-Only one contributed theme is active at a time. Selecting one persists the choice; if the plugin is
-later disabled or removed, Paseo falls back to the default theme rather than leaving the app
-unpainted.
+Only one contributed theme is active at a time. Selecting one persists the
+choice; if the plugin is later disabled or removed, Paseo falls back to the
+default theme rather than leaving the app unpainted.
 
-Themes need a host that supports them. A client released before `addTheme` cannot evaluate that client entry and reports
+Themes need a host that supports them. A client released before `addTheme`
+cannot evaluate that client entry and reports
 `client.addTheme is not a function`. Update the client.
 
 ## Settings screens
 
-Register a component with `client.addSettingsScreen({ id, title, icon, Component })` in
-`index.client.tsx`. It appears under **Settings → Plugins → your plugin** on that host.
-`id` is unique within the installation; `icon` is any [icon](#icons) form. Registration returns an
-idempotent remover, and plugin teardown removes remaining screens.
+Register a component with
+`client.addSettingsScreen({ id, title, icon, Component })` in
+`index.client.tsx`. It appears under **Settings → Plugins → your plugin** on
+that host. `id` is unique within the installation; `icon` is any [icon](#icons)
+form. Registration returns an idempotent remover, and plugin teardown removes
+remaining screens.
 
-Call `client.openSettings(id)` or a Command Center callback's `openSettings(id)` to open one
-of your own screens. Each installation has its own values and route, even when several hosts
-install the same plugin.
+Call `client.openSettings(id)` or a Command Center callback's `openSettings(id)`
+to open one of your own screens. Each installation has its own values and route,
+even when several hosts install the same plugin.
 
-The component receives `PluginSurfaceProps`. Paseo owns the header, back navigation, safe areas,
-scrolling, and the centered settings column. Compact windows push a full-screen detail; wide
-windows keep the settings sidebar. Render content inside that frame using React Native components.
-A disabled or removed plugin leaves an unavailable screen with working Back navigation.
+The component receives `PluginSurfaceProps`. Paseo owns the header, back
+navigation, safe areas, scrolling, and the centered settings column. Compact
+windows push a full-screen detail; wide windows keep the settings sidebar.
+Render content inside that frame using React Native components. A disabled or
+removed plugin leaves an unavailable screen with working Back navigation.
 
 ### Named UI components
 
-Import settings components from `@getpaseo/plugin/client/ui`. They work with your own state and RPCs;
-no form wrapper or storage binding is required.
+Import settings components from `@getpaseo/plugin/client/ui`. They work with
+your own state and RPCs; no form wrapper or storage binding is required.
 
 ```tsx
 import { useState } from "react";
@@ -1675,10 +1983,11 @@ export function DisplaySettings() {
 | `SettingsInput`   | Row props plus required `onChangeText`; optional `initialValue`, `placeholder`, `disabled`, `secureTextEntry`, `ref`.                    |
 | `SettingsAction`  | Row props plus required `actionLabel`, `onPress`; optional `disabled`.                                                                   |
 
-`SettingsInput` owns in-progress text. `initialValue` seeds it when mounted. Its ref exposes
-`focus()`, `blur()`, `getText()`, and `replaceText(text)` for explicit programmatic changes.
-Keep draft text outside persisted values until the user saves. Custom previews and controls
-can sit beside or inside these components.
+`SettingsInput` owns in-progress text. `initialValue` seeds it when mounted. Its
+ref exposes `focus()`, `blur()`, `getText()`, and `replaceText(text)` for
+explicit programmatic changes. Keep draft text outside persisted values until
+the user saves. Custom previews and controls can sit beside or inside these
+components.
 
 ### Persisted values
 
@@ -1696,8 +2005,9 @@ export const preferences = defineSettings({
 });
 ```
 
-Register it in `index.server.ts` before returning cleanup. The returned handle lets server code
-read the document and react to changes. A screen using its own data can remain client-only.
+Register it in `index.server.ts` before returning cleanup. The returned handle
+lets server code read the document and react to changes. A screen using its own
+data can remain client-only.
 
 ```ts
 export default function contribute(server: PluginServerContext) {
@@ -1721,7 +2031,8 @@ export default function contribute(server: PluginServerContext) {
 | `schema`                       | Zod schema for JSON values. Supply defaults so parsing `{}` produces a complete document.                                            |
 | `migrate(values, fromVersion)` | Optional synchronous or asynchronous conversion from an older stored version. Its output must pass the current schema.               |
 
-Call `useSettings(preferences)` in any contributed component. It returns a discriminated state:
+Call `useSettings(preferences)` in any contributed component. It returns a
+discriminated state:
 
 | `status`  | Available data                                                           |
 | --------- | ------------------------------------------------------------------------ |
@@ -1730,11 +2041,12 @@ Call `useSettings(preferences)` in any contributed component. It returns a discr
 | `invalid` | `error` and `revision`; stored data is preserved.                        |
 | `error`   | `error` from the read/connection.                                        |
 
-The server handle exposes `read()` and `subscribe()`. `read()` returns the same `ready` or
-`invalid` state as the client hook, including the opaque revision. `subscribe()` returns a cleanup
-function and receives a new `ready` state after a successful save, reset, or migration. Invalid
-writes and revision conflicts do not notify subscribers. Listener failures are logged without
-turning a committed write into a failed save.
+The server handle exposes `read()` and `subscribe()`. `read()` returns the same
+`ready` or `invalid` state as the client hook, including the opaque revision.
+`subscribe()` returns a cleanup function and receives a new `ready` state after
+a successful save, reset, or migration. Invalid writes and revision conflicts do
+not notify subscribers. Listener failures are logged without turning a committed
+write into a failed save.
 
 ```ts
 const current = await settings.read();
@@ -1745,34 +2057,42 @@ if (current.status === "ready") {
 
 Every state also exposes `saving`, `saveError`, and these actions:
 
-- `save(values, revision): Promise<boolean>` validates and saves a complete document. Returns
-  `false` and sets `saveError` on validation, conflict, or transport failure; it does not throw.
-- `reset(): Promise<boolean>` explicitly replaces the document with schema defaults, using the
-  revision loaded by the hook. It can recover invalid stored data.
-- `reload(): Promise<void>` clears the save error and reads again. Your component owns its draft;
-  reloading does not discard that draft automatically.
+- `save(values, revision): Promise<boolean>` validates and saves a complete
+  document. Returns `false` and sets `saveError` on validation, conflict, or
+  transport failure; it does not throw.
+- `reset(): Promise<boolean>` explicitly replaces the document with schema
+  defaults, using the revision loaded by the hook. It can recover invalid stored
+  data.
+- `reload(): Promise<void>` clears the save error and reads again. Your
+  component owns its draft; reloading does not discard that draft automatically.
 
-For an immediate toggle, pass `{ ...settings.values, showMetadata }` and `settings.revision`
-to `save`. For a draft editor, capture both the values and revision when opening it. Keep that
-revision until a save succeeds or the user discards the draft. A stale revision rejects the
-save, preserving both the draft and the newer saved values.
+For an immediate toggle, pass `{ ...settings.values, showMetadata }` and
+`settings.revision` to `save`. For a draft editor, capture both the values and
+revision when opening it. Keep that revision until a save succeeds or the user
+discards the draft. A stale revision rejects the save, preserving both the draft
+and the newer saved values.
 
-Writes are atomic and validated on the host. Connected clients receive updates without reloading
-the plugin. Values survive daemon restart, plugin reload, disable, and updates. Removing an
-installation deletes its settings. Reinstalling that ID starts from defaults.
+Writes are atomic and validated on the host. Connected clients receive updates
+without reloading the plugin. Values survive daemon restart, plugin reload,
+disable, and updates. Removing an installation deletes its settings.
+Reinstalling that ID starts from defaults.
 
-A missing document uses schema defaults. Invalid data, failed migrations, and unsupported newer
-versions produce `invalid` without silently resetting the file. Successful migrations persist
-the new version once. These documents are ordinary host-side JSON, not a credential vault.
-Settings RPCs use the existing `daemon.manage` permission for plugin execution.
+A missing document uses schema defaults. Invalid data, failed migrations, and
+unsupported newer versions produce `invalid` without silently resetting the
+file. Successful migrations persist the new version once. These documents are
+ordinary host-side JSON, not a credential vault. Settings RPCs use the existing
+`daemon.manage` permission for plugin execution.
 
-See the complete [settings example](https://github.com/getpaseo/paseo/tree/main/plugin-examples/settings)
-for immediate controls, a draft editor with validation, custom content, and Command Center navigation.
+See the complete
+[settings example](https://github.com/getpaseo/paseo/tree/main/plugin-examples/settings)
+for immediate controls, a draft editor with validation, custom content, and
+Command Center navigation.
 
 ## Workspace panels
 
-Register workspace panels with `addWorkspacePanel` and agent panels with `addAgentPanel`.
-Both receive the same panel contract as [file panels](#file-panels).
+Register workspace panels with `addWorkspacePanel` and agent panels with
+`addAgentPanel`. Both receive the same panel contract as
+[file panels](#file-panels).
 
 `client/review.tsx`:
 
@@ -1833,14 +2153,17 @@ export default function contribute(client: PluginClientContext) {
 | `locations` | No       | `workspace` and/or `explorer`. Defaults to `workspace`.       |
 | `Component` | Yes      | React Native component matching the selected context's props. |
 
-Every panel receives `PluginPanelProps<Params>` with `theme`, `host`, `layout`, `navigation`,
-`workspaceId`, read-only `params`, `revision`, and `tab`. Workspace panels have empty
-`PluginWorkspacePanelParams`; agent panels have `PluginAgentPanelParams` containing `agentId`.
-`revision` increments whenever params are re-sent to the same tab, including an identical request.
+Every panel receives `PluginPanelProps<Params>` with `theme`, `host`, `layout`,
+`navigation`, `workspaceId`, read-only `params`, `revision`, and `tab`.
+Workspace panels have empty `PluginWorkspacePanelParams`; agent panels have
+`PluginAgentPanelParams` containing `agentId`. `revision` increments whenever
+params are re-sent to the same tab, including an identical request.
 
-`tab.setModified(boolean)` marks unsaved work and asks before closing. `tab.state` is opaque
-persisted JSON, initially `undefined`; `tab.setState(value)` replaces it. Each tab owns its state.
-Paseo stores it without interpreting it. Validate it with `useTabState(tab, schema, defaultState)`:
+`tab.setModified(boolean)` marks unsaved work and asks before closing.
+`tab.state` is opaque persisted JSON, initially `undefined`;
+`tab.setState(value)` replaces it. Each tab owns its state. Paseo stores it
+without interpreting it. Validate it with
+`useTabState(tab, schema, defaultState)`:
 
 ```tsx
 const schema = z.object({ view: z.enum(["preview", "source"]) });
@@ -1849,19 +2172,30 @@ const [state, setState] = useTabState(tab, schema, { view: "preview" });
 // In an event handler, call setState({ view: "source" }).
 ```
 
-Import `useTabState` from `@getpaseo/plugin/client` and `z` from `zod`. The setter replaces the
-entire JSON value. State survives tab restoration and app reloads.
+Import `useTabState` from `@getpaseo/plugin/client` and `z` from `zod`. The
+setter replaces the entire JSON value. State survives tab restoration and app
+reloads.
 
-The unified props, `addAgentPanel`, and `useTabState` require Paseo 0.13.0 or later.
+The unified props, `addAgentPanel`, and `useTabState` require Paseo 0.13.0 or
+later.
 
-**Deprecated until removal after 2027-04-23:** the 0.12 panel `context` and flat `agentId` props,
-`addWorkspacePanel({ context: "workspace" })`, and `addWorkspacePanel({ context: "agent" })`
-continue to work. Omit workspace `context`, register agent panels with `addAgentPanel`, and read
+**Deprecated until removal after 2027-04-23:** the 0.12 panel `context` and flat
+`agentId` props, `addWorkspacePanel({ context: "workspace" })`, and
+`addWorkspacePanel({ context: "agent" })` continue to work. Omit workspace
+`context`, register agent panels with `addAgentPanel`, and read
 `params.agentId`.
 
-Read cached state with `useWorkspace(workspaceId, selector)` and `useAgent(params.agentId, selector)`. A selector is required. Paseo compares its result shallowly, so selecting `{ name, status }` does not re-render when unrelated fields change. Select every field the component renders in one call; do not select the whole snapshot.
+Read cached state with `useWorkspace(workspaceId, selector)` and
+`useAgent(params.agentId, selector)`. A selector is required. Paseo compares its
+result shallowly, so selecting `{ name, status }` does not re-render when
+unrelated fields change. Select every field the component renders in one call;
+do not select the whole snapshot.
 
-Both hooks return `null` when the record is unavailable. Otherwise they run synchronously against normalized client state. Snapshot DTOs and their nested values are deeply readonly and frozen at runtime. Do not call plugin RPC to discover the current workspace or agent. Fetch optional or vendor-specific enrichment after the component renders.
+Both hooks return `null` when the record is unavailable. Otherwise they run
+synchronously against normalized client state. Snapshot DTOs and their nested
+values are deeply readonly and frozen at runtime. Do not call plugin RPC to
+discover the current workspace or agent. Fetch optional or vendor-specific
+enrichment after the component renders.
 
 Workspace snapshot fields:
 
@@ -1902,14 +2236,17 @@ Agent snapshot fields:
 | `parentAgentId`     | `string \| null`                                               |
 | `labels`            | `Record<string, string>`                                       |
 
-Paseo owns tab focus, splitting, closing, persistence, query state, the API/RPC providers, and the render error boundary. A restored tab whose plugin, panel, context, workspace, or agent is unavailable stays open with an unavailable message instead of crashing the workspace.
+Paseo owns tab focus, splitting, closing, persistence, query state, the API/RPC
+providers, and the render error boundary. A restored tab whose plugin, panel,
+context, workspace, or agent is unavailable stays open with an unavailable
+message instead of crashing the workspace.
 
 ## File panels
 
-Register a component that renders a file as the body of its file tab. Your component receives a
-handle to the file on the selected host, including remote hosts. It reads the file, shows its own
-loading state, and writes the file when the user edits it. The tab shows a dot while your panel
-reports unsaved changes.
+Register a component that renders a file as the body of its file tab. Your
+component receives a handle to the file on the selected host, including remote
+hosts. It reads the file, shows its own loading state, and writes the file when
+the user edits it. The tab shows a dot while your panel reports unsaved changes.
 
 ```tsx
 import type { PluginClientContext } from "@getpaseo/plugin/client";
@@ -1926,8 +2263,9 @@ export default function contribute(client: PluginClientContext) {
 }
 ```
 
-`addFilePanel` takes a `PluginFilePanelContribution` and returns an idempotent cleanup function.
-Paseo also removes the registration when the client entry is unloaded.
+`addFilePanel` takes a `PluginFilePanelContribution` and returns an idempotent
+cleanup function. Paseo also removes the registration when the client entry is
+unloaded.
 
 | Field       | Required | Meaning                                                                  |
 | ----------- | -------- | ------------------------------------------------------------------------ |
@@ -1937,14 +2275,16 @@ Paseo also removes the registration when the client entry is unloaded.
 | `files`     | Yes      | `{ extensions: readonly string[]; filenames?: readonly string[] }`.      |
 | `Component` | Yes      | Component receiving `PluginFilePanelProps`.                              |
 
-Extensions have no leading dot and match without case sensitivity. Filenames match the exact
-basename, including case. Selectors contain no paths, globs, or wildcards. Use `extensions: []`
-for a filename-only selector. At least one extension or filename is required.
+Extensions have no leading dot and match without case sensitivity. Filenames
+match the exact basename, including case. Selectors contain no paths, globs, or
+wildcards. Use `extensions: []` for a filename-only selector. At least one
+extension or filename is required.
 
 ### File panel props
 
-`PluginFilePanelProps` includes the common `theme`, `host`, `layout`, and optional `navigation`
-props described under [Theme and layout](#theme-and-layout), plus:
+`PluginFilePanelProps` includes the common `theme`, `host`, `layout`, and
+optional `navigation` props described under
+[Theme and layout](#theme-and-layout), plus:
 
 | Prop          | Type                    | Meaning                                                                                             |
 | ------------- | ----------------------- | --------------------------------------------------------------------------------------------------- |
@@ -1954,10 +2294,11 @@ props described under [Theme and layout](#theme-and-layout), plus:
 | `file`        | `PluginFile`            | File capability resolved from `params.path`, stable while the tab shows this file.                  |
 | `tab`         | `PluginTab`             | `setModified`, opaque persisted `state`, and `setState`. See [Workspace panels](#workspace-panels). |
 
-Paseo mounts your panel once it knows the file exists and its size, without reading it. The
-`file` object is stable, and its stat fields hold the latest version Paseo knows. Read them while
-rendering; changing them does not re-render your panel. A `watch` listener, or a re-render from
-`useFileText`, `useFileBytes`, or `useFileUrl`, is how your panel learns they changed:
+Paseo mounts your panel once it knows the file exists and its size, without
+reading it. The `file` object is stable, and its stat fields hold the latest
+version Paseo knows. Read them while rendering; changing them does not re-render
+your panel. A `watch` listener, or a re-render from `useFileText`,
+`useFileBytes`, or `useFileUrl`, is how your panel learns they changed:
 
 | Member                           | Meaning                                                                                     |
 | -------------------------------- | ------------------------------------------------------------------------------------------- |
@@ -1970,23 +2311,25 @@ rendering; changing them does not re-render your panel. A `watch` listener, or a
 | `writeBytes(bytes, options?)`    | The same for bytes.                                                                         |
 | `watch(listener)`                | Calls `listener(event)` with a `PluginFileEvent`; returns the unsubscribe function.         |
 
-A `PluginFileEvent` is `{ type: "changed" }` or `{ type: "deleted" }`. Switch on `type`; later
-versions may add fields. Your panel stays mounted when the file is deleted. `watch` reports
-`{ type: "deleted" }` once a read confirms the file is gone, so a program that removes the file and
-writes it back reports only `{ type: "changed" }`. A deleted file that comes back reports
+A `PluginFileEvent` is `{ type: "changed" }` or `{ type: "deleted" }`. Switch on
+`type`; later versions may add fields. Your panel stays mounted when the file is
+deleted. `watch` reports `{ type: "deleted" }` once a read confirms the file is
+gone, so a program that removes the file and writes it back reports only
+`{ type: "changed" }`. A deleted file that comes back reports
 `{ type: "changed" }`.
 
-A write rejects with `PluginFileConflictError` when the file changed on disk after the handle's
-last read or write. Pass `{ force: true }` to write anyway. A write rejects with
-`PluginFileDeletedError` when the file is gone, with or without `force`. The handle's own writes do not notify
-its watchers. Paseo owns the URL from `url()`: it stays valid until a URL for a newer version
-resolves or the tab closes. Do not build daemon URLs from `file.path`; local URLs also work when
-the daemon is remote.
+A write rejects with `PluginFileConflictError` when the file changed on disk
+after the handle's last read or write. Pass `{ force: true }` to write anyway. A
+write rejects with `PluginFileDeletedError` when the file is gone, with or
+without `force`. The handle's own writes do not notify its watchers. Paseo owns
+the URL from `url()`: it stays valid until a URL for a newer version resolves or
+the tab closes. Do not build daemon URLs from `file.path`; local URLs also work
+when the daemon is remote.
 
 ### Read the file
 
-Most panels read through a hook. Each hook reads when mounted, re-reads when the file changes on
-disk, and keeps the current value during a re-read:
+Most panels read through a hook. Each hook reads when mounted, re-reads when the
+file changes on disk, and keeps the current value during a re-read:
 
 | Hook                 | Ready state                              |
 | -------------------- | ---------------------------------------- |
@@ -1994,9 +2337,11 @@ disk, and keeps the current value during a re-read:
 | `useFileBytes(file)` | `{ status: "ready", bytes: Uint8Array }` |
 | `useFileUrl(file)`   | `{ status: "ready", url: string }`       |
 
-Each also returns `{ status: "loading" }` before the first read and `{ status: "error", error }`
-when a read fails. For a deleted file, `error` is a `PluginFileDeletedError`. Show `Loading` from `@getpaseo/plugin/client/ui` until
-your content is on screen; it fills the panel, so render it over content that is still laying out.
+Each also returns `{ status: "loading" }` before the first read and
+`{ status: "error", error }` when a read fails. For a deleted file, `error` is a
+`PluginFileDeletedError`. Show `Loading` from `@getpaseo/plugin/client/ui` until
+your content is on screen; it fills the panel, so render it over content that is
+still laying out.
 
 ```tsx
 import { type PluginFilePanelProps, useFileUrl } from "@getpaseo/plugin/client";
@@ -2015,85 +2360,103 @@ export function PdfPanel({ file, theme }: PluginFilePanelProps) {
 
 ### Edit the file
 
-A hook's re-read adopts the version on disk, so the next write overwrites whatever changed there.
-A panel that holds unsaved edits reads with `readText()` once, then handles `watch` itself:
+A hook's re-read adopts the version on disk, so the next write overwrites
+whatever changed there. A panel that holds unsaved edits reads with `readText()`
+once, then handles `watch` itself:
 
 1. Read with `file.readText()` and show the text.
-2. On each edit, call `tab.setModified(true)` and write with `file.writeText(text)`, debounced.
-3. When the write resolves and no newer edit is pending, call `tab.setModified(false)`.
-4. On `{ type: "changed" }` with nothing unsaved, read again. With unsaved edits, show a conflict
-   and let the user reload or overwrite with `{ force: true }`.
+2. On each edit, call `tab.setModified(true)` and write with
+   `file.writeText(text)`, debounced.
+3. When the write resolves and no newer edit is pending, call
+   `tab.setModified(false)`.
+4. On `{ type: "changed" }` with nothing unsaved, read again. With unsaved
+   edits, show a conflict and let the user reload or overwrite with
+   `{ force: true }`.
 5. On `PluginFileConflictError`, show the same conflict.
-6. On `{ type: "deleted" }` or `PluginFileDeletedError`, tell the user the file is gone.
+6. On `{ type: "deleted" }` or `PluginFileDeletedError`, tell the user the file
+   is gone.
 
-Write pending edits before the component unmounts: opening the tab with another panel or closing
-the tab unmounts it. Paseo asks before closing a tab whose panel reports unsaved changes. The
+Write pending edits before the component unmounts: opening the tab with another
+panel or closing the tab unmounts it. Paseo asks before closing a tab whose
+panel reports unsaved changes. The
 [Markdown panel](https://github.com/getpaseo/paseo/tree/main/plugin-examples/markdown-panel)
 example implements these steps.
 
 ### Selection and Open with
 
-A plugin panel is a candidate for every file its selector matches, text or binary. The built-in
-panels require the host's file kind: Markdown, HTML, and **Source** open text files; Image opens
-images. The Markdown and HTML panels each have a Preview and a Source view of the file, switched
-in their toolbar. **Source**, Paseo's editor, is the built-in panel for text files that no other
-built-in panel claims; it is never offered beside another built-in panel. Candidates are ordered:
-the built-in panel that claims the file, then plugin panels in host catalog order, then Source
-when no other built-in claims the file.
+A plugin panel is a candidate for every file its selector matches, text or
+binary. The built-in panels require the host's file kind: Markdown, HTML, and
+**Source** open text files; Image opens images. The Markdown and HTML panels
+each have a Preview and a Source view of the file, switched in their toolbar.
+**Source**, Paseo's editor, is the built-in panel for text files that no other
+built-in panel claims; it is never offered beside another built-in panel.
+Candidates are ordered: the built-in panel that claims the file, then plugin
+panels in host catalog order, then Source when no other built-in claims the
+file.
 
-A remembered association selects its panel when that panel is available on the current host.
-Otherwise Paseo opens the first candidate. When a plugin panel is among several candidates and no
-association applies, Paseo asks once per tab open, over the panel it already opened. A file with
-one candidate never asks. With a Markdown plugin installed, the picker offers **Markdown — Paseo**
-and **Rich Markdown — markdown-panel**. A plugin that claims a text extension no built-in panel
-claims competes with Source, so its first open asks; a plugin that alone claims a binary file
-opens without asking.
+A remembered association selects its panel when that panel is available on the
+current host. Otherwise Paseo opens the first candidate. When a plugin panel is
+among several candidates and no association applies, Paseo asks once per tab
+open, over the panel it already opened. A file with one candidate never asks.
+With a Markdown plugin installed, the picker offers **Markdown — Paseo** and
+**Rich Markdown — markdown-panel**. A plugin that claims a text extension no
+built-in panel claims competes with Source, so its first open asks; a plugin
+that alone claims a binary file opens without asking.
 
-**Don't ask me again** remembers the choice on this device for the extension. When a candidate
-matches an exact filename, the choice applies to that basename instead. An unavailable association
-is ignored on that host and retained for hosts where its panel is installed.
+**Don't ask me again** remembers the choice on this device for the extension.
+When a candidate matches an exact filename, the choice applies to that basename
+instead. An unavailable association is ignored on that host and retained for
+hosts where its panel is installed.
 
-Users choose a panel three ways: the picker on first open, **Open with…** in the tab menu, and
-**Settings > Files**. Open with switches the current tab and wins over the remembered association
-for this tab until it is retargeted; its **Always use** remembers the shown panel. Opening a file
-at a line, from a link or a search result, switches the tab to its built-in panel, which shows the
-line in its Source view. Files with no candidate show **Binary preview unavailable**; binary files
-have no Source panel.
+Users choose a panel three ways: the picker on first open, **Open with…** in the
+tab menu, and **Settings > Files**. Open with switches the current tab and wins
+over the remembered association for this tab until it is retargeted; its
+**Always use** remembers the shown panel. Opening a file at a line, from a link
+or a search result, switches the tab to its built-in panel, which shows the line
+in its Source view. Files with no candidate show **Binary preview unavailable**;
+binary files have no Source panel.
 
 ### DocumentFrame
 
-Import `DocumentFrame` from `@getpaseo/plugin/client/ui` to display a local file URL from
-`file.url()` or `useFileUrl`:
+Import `DocumentFrame` from `@getpaseo/plugin/client/ui` to display a local file
+URL from `file.url()` or `useFileUrl`:
 
 | Prop     | Required | Meaning                                                                          |
 | -------- | -------- | -------------------------------------------------------------------------------- |
 | `url`    | Yes      | Local file URL; `blob:` on web or `file:` on native. Other schemes are rejected. |
 | `testID` | No       | Test identifier for the frame.                                                   |
 
-Web inspects the local URL’s media type before mounting the iframe. PDF uses the browser’s PDF
-viewer without a sandbox; every other type, including HTML and unknown types, keeps a full sandbox
-with no scripts or same-origin access. Native uses a WebView with JavaScript, storage, and further
-navigation disabled. Where the platform cannot show the document inline, such as a PDF on Android,
-`DocumentFrame` shows a message naming the file type instead, so render it on every platform.
+Web inspects the local URL’s media type before mounting the iframe. PDF uses the
+browser’s PDF viewer without a sandbox; every other type, including HTML and
+unknown types, keeps a full sandbox with no scripts or same-origin access.
+Native uses a WebView with JavaScript, storage, and further navigation disabled.
+Where the platform cannot show the document inline, such as a PDF on Android,
+`DocumentFrame` shows a message naming the file type instead, so render it on
+every platform.
 
-Inline PDF rendering needs a daemon from Paseo 0.13.0 or later; older daemons report PDFs as
-`application/octet-stream`.
+Inline PDF rendering needs a daemon from Paseo 0.13.0 or later; older daemons
+report PDFs as `application/octet-stream`.
 
 ### Version requirement and examples
 
-File panels, `DocumentFrame`, and `Loading` require Paseo 0.13.0 or later. Declare
-`"requirements": { "paseo": ">=0.13.0" }` in `paseo-plugin.json`. Both daemon and app check the
-[version requirement](#requirements); older apps skip the client bundle before evaluation.
-Writing with `writeBytes` needs a daemon from Paseo 0.13.0 or later.
+File panels, `DocumentFrame`, and `Loading` require Paseo 0.13.0 or later.
+Declare `"requirements": { "paseo": ">=0.13.0" }` in `paseo-plugin.json`. Both
+daemon and app check the [version requirement](#requirements); older apps skip
+the client bundle before evaluation. Writing with `writeBytes` needs a daemon
+from Paseo 0.13.0 or later.
 
 Complete directory examples:
 
-- [PDF panel](https://github.com/getpaseo/paseo/tree/main/plugin-examples/pdf-panel): `useFileUrl` with `Loading` and `DocumentFrame`.
-- [Markdown panel](https://github.com/getpaseo/paseo/tree/main/plugin-examples/markdown-panel): a bundled CodeMirror editor that reads once, saves with `writeText`, and resolves conflicts, with read-only native text.
+- [PDF panel](https://github.com/getpaseo/paseo/tree/main/plugin-examples/pdf-panel):
+  `useFileUrl` with `Loading` and `DocumentFrame`.
+- [Markdown panel](https://github.com/getpaseo/paseo/tree/main/plugin-examples/markdown-panel):
+  a bundled CodeMirror editor that reads once, saves with `writeText`, and
+  resolves conflicts, with read-only native text.
 
 ## Command Center items
 
-Open the Command Center with **⌘K** on macOS or **Ctrl+K** on Windows and Linux, then search for the item title.
+Open the Command Center with **⌘K** on macOS or **Ctrl+K** on Windows and Linux,
+then search for the item title.
 
 Register an action and open a panel from the callback:
 
@@ -2132,7 +2495,11 @@ client.addCommandCenterItem({
 | `context`  | Yes      | `global`, `workspace`, or `agent`.                         |
 | `onSelect` | Yes      | Client-side callback for the matching context.             |
 
-Global items appear on the installation's selected host. Workspace items appear only when that host has an active cached workspace. Agent items appear only when the focused workspace tab is an agent or an agent-context plugin panel whose cached record belongs to that workspace. Missing context removes the item rather than calling the plugin to discover it.
+Global items appear on the installation's selected host. Workspace items appear
+only when that host has an active cached workspace. Agent items appear only when
+the focused workspace tab is an agent or an agent-context plugin panel whose
+cached record belongs to that workspace. Missing context removes the item rather
+than calling the plugin to discover it.
 
 Every callback receives:
 
@@ -2146,12 +2513,16 @@ Every callback receives:
 | `agent`                   | Agent               | Synchronous matching agent snapshot.                                                                            |
 | `openPanel(id, options?)` | Workspace and agent | Opens a registered panel in the callback's current context. Pass `{ location: "explorer" }` to target Explorer. |
 
-An agent callback may open either an agent panel or a workspace panel. A workspace callback may open only a workspace panel. Unknown screen and panel IDs fail visibly. Use `paseo` for normal workspace, agent, provider, and daemon-config operations. Use `rpc` for plugin-specific filesystem, credential, vendor, or daemon-local work.
+An agent callback may open either an agent panel or a workspace panel. A
+workspace callback may open only a workspace panel. Unknown screen and panel IDs
+fail visibly. Use `paseo` for normal workspace, agent, provider, and
+daemon-config operations. Use `rpc` for plugin-specific filesystem, credential,
+vendor, or daemon-local work.
 
 ## Slash commands
 
-Register a command that runs in the Paseo client when the user submits `/name args` from the
-message composer. The text is never sent to the agent:
+Register a command that runs in the Paseo client when the user submits
+`/name args` from the message composer. The text is never sent to the agent:
 
 ```ts
 client.addSlashCommand({
@@ -2174,23 +2545,28 @@ client.addSlashCommand({
 | `context`      | Yes      | `"workspace"` or `"agent"`.                    |
 | `onSubmit`     | Yes      | Client callback for the matching context.      |
 
-`onSubmit` receives the matching Command Center callback context plus `args`. For `/review src`,
-`args` is `"src"`; Paseo trims only the remainder's leading and trailing whitespace and leaves
-parsing to the plugin. Paseo owns the autocomplete row, input clearing, and the error toast. It
-does not wait for `onSubmit` or show a pending state; use a composer pill or panel for that.
+`onSubmit` receives the matching Command Center callback context plus `args`.
+For `/review src`, `args` is `"src"`; Paseo trims only the remainder's leading
+and trailing whitespace and leaves parsing to the plugin. Paseo owns the
+autocomplete row, input clearing, and the error toast. It does not wait for
+`onSubmit` or show a pending state; use a composer pill or panel for that.
 
-Precedence is built-in client commands, plugin commands, then provider commands. A lower-precedence
-collision is omitted. Built-in aliases also reserve their names. The first plugin in stable catalog
-order wins a collision between plugins. Commands do not run while the composer has attachments.
+Precedence is built-in client commands, plugin commands, then provider commands.
+A lower-precedence collision is omitted. Built-in aliases also reserve their
+names. The first plugin in stable catalog order wins a collision between
+plugins. Commands do not run while the composer has attachments.
 
 ## Header buttons
 
-Try the [button example](https://github.com/getpaseo/paseo/tree/main/plugin-examples/buttons) for
-actions, menus, custom icons and content, and visibility updates in both the header and composer.
-It switches one header button between modes; additional actions use a named Tools menu.
+Try the
+[button example](https://github.com/getpaseo/paseo/tree/main/plugin-examples/buttons)
+for actions, menus, custom icons and content, and visibility updates in both the
+header and composer. It switches one header button between modes; additional
+actions use a named Tools menu.
 
-`client.addHeaderButton({ id, workspaceId, button })` adds a button before the built-in actions on
-the workspace header's right side. It returns a registration with `update(patch)` and `remove()`.
+`client.addHeaderButton({ id, workspaceId, button })` adds a button before the
+built-in actions on the workspace header's right side. It returns a registration
+with `update(patch)` and `remove()`.
 
 ```tsx
 const review = client.addHeaderButton({
@@ -2215,18 +2591,20 @@ review.update({ visible: true });
 review.remove();
 ```
 
-Omit `label` for an icon-only header button. Menus and popovers show a chevron on wide layouts.
-Paseo moves excess contributions into a shared overflow menu. On phones and narrow windows the
-header has no room for plugin buttons, so each one is a row of the workspace menu (`···`), with its
-icon and title; its menus and popovers open as pages of that sheet. Placement and overflow are host
+Omit `label` for an icon-only header button. Menus and popovers show a chevron
+on wide layouts. Paseo moves excess contributions into a shared overflow menu.
+On phones and narrow windows the header has no room for plugin buttons, so each
+one is a row of the workspace menu (`···`), with its icon and title; its menus
+and popovers open as pages of that sheet. Placement and overflow are host
 decisions.
 
 ## Composer pills
 
-`client.addComposerPill({ id, workspaceId, agentId, button })` uses the same [button descriptor](#button-descriptor)
-and returns the same registration. It targets one agent's composer track alongside Tasks and
-Subagents. Composer pills always show the icon and `label` (or `title` when `label` is omitted).
-They never show a chevron, including for menus and popovers.
+`client.addComposerPill({ id, workspaceId, agentId, button })` uses the same
+[button descriptor](#button-descriptor) and returns the same registration. It
+targets one agent's composer track alongside Tasks and Subagents. Composer pills
+always show the icon and `label` (or `title` when `label` is omitted). They
+never show a chevron, including for menus and popovers.
 
 ```tsx
 const pill = client.addComposerPill({
@@ -2247,9 +2625,11 @@ const pill = client.addComposerPill({
 });
 ```
 
-For pills that follow the agent directory, use an explicit [owned list subscription](/docs/sdk/events#follow-one-agents-status).
-The [local plugin example](https://github.com/getpaseo/paseo/blob/main/plugin-examples/local-plugin/client/main.tsx)
-replaces registrations on each snapshot and aborts the observation during entry cleanup, including pending bootstrap.
+For pills that follow the agent directory, use an explicit
+[owned list subscription](/docs/sdk/events#follow-one-agents-status). The
+[local plugin example](https://github.com/getpaseo/paseo/blob/main/plugin-examples/local-plugin/client/main.tsx)
+replaces registrations on each snapshot and aborts the observation during entry
+cleanup, including pending bootstrap.
 
 ## Button descriptor
 
@@ -2271,17 +2651,19 @@ type PluginButtonBehavior =
   | { kind: "popover"; Content: React.ComponentType<PluginButtonContentProps> };
 ```
 
-An action runs on the client. Paseo marks the button busy until its promise settles, blocks repeated
-presses, and shows failures in a toast. A failed action can be retried. Use the client's `paseo` for
-ordinary operations and `rpc` for plugin-specific backend work.
+An action runs on the client. Paseo marks the button busy until its promise
+settles, blocks repeated presses, and shows failures in a toast. A failed action
+can be retried. Use the client's `paseo` for ordinary operations and `rpc` for
+plugin-specific backend work.
 
-Menus and popovers open anchored surfaces on wide layouts and bottom sheets on compact layouts.
-The whole trigger opens the surface; there is no split-button behavior.
+Menus and popovers open anchored surfaces on wide layouts and bottom sheets on
+compact layouts. The whole trigger opens the surface; there is no split-button
+behavior.
 
 ### Menu entries
 
-A menu contains items and separators. IDs use lowercase letters, digits, and hyphens, start with
-a letter, and are unique within that menu.
+A menu contains items and separators. IDs use lowercase letters, digits, and
+hyphens, start with a letter, and are unique within that menu.
 
 ```tsx
 const behavior: PluginButtonBehavior = {
@@ -2305,23 +2687,27 @@ const behavior: PluginButtonBehavior = {
 };
 ```
 
-An item requires `kind: "item"`, `id`, `title`, and `behavior`. Its optional `icon`, `visible`, and
-`disabled` follow the button rules. A separator contains only `kind: "separator"` and `id`.
-Paseo removes leading, trailing, and consecutive separators after filtering hidden items.
+An item requires `kind: "item"`, `id`, `title`, and `behavior`. Its optional
+`icon`, `visible`, and `disabled` follow the button rules. A separator contains
+only `kind: "separator"` and `id`. Paseo removes leading, trailing, and
+consecutive separators after filtering hidden items.
 
-Items can use all three behaviors. Nested menus open flyouts on wide layouts and pages with back
-navigation within the same compact sheet. Custom content pages open on selection, never hover.
-Choosing an action closes the menu; opening another page keeps it open.
+Items can use all three behaviors. Nested menus open flyouts on wide layouts and
+pages with back navigation within the same compact sheet. Custom content pages
+open on selection, never hover. Choosing an action closes the menu; opening
+another page keeps it open.
 
 ### Custom icons and popover content
 
-`PluginButtonIconProps` contains `theme`, `host`, `layout`, `size`, `color`, and the target context.
-Render a React Native icon or indicator within the supplied size. Paseo bounds the icon slot and
-owns all pointer interaction. The icon component can use plugin hooks.
+`PluginButtonIconProps` contains `theme`, `host`, `layout`, `size`, `color`, and
+the target context. Render a React Native icon or indicator within the supplied
+size. Paseo bounds the icon slot and owns all pointer interaction. The icon
+component can use plugin hooks.
 
-`PluginButtonContentProps` contains `theme`, `host`, `layout`, the target context, and `close()`.
-Render the body only; Paseo owns anchoring, scrolling, padding, and sheet presentation. Content can
-use `usePaseo`, `useRpc`, `useWorkspace`, `useAgent`, and the installation's React Query cache.
+`PluginButtonContentProps` contains `theme`, `host`, `layout`, the target
+context, and `close()`. Render the body only; Paseo owns anchoring, scrolling,
+padding, and sheet presentation. Content can use `usePaseo`, `useRpc`,
+`useWorkspace`, `useAgent`, and the installation's React Query cache.
 
 The target context is one of:
 
@@ -2332,30 +2718,35 @@ The target context is one of:
 
 ### Updates and lifecycle
 
-Each registration belongs to one plugin installation, placement, workspace, and (for pills) agent.
-`id` is plugin-local within that target and uses the same format as menu IDs. The same ID may be
-used in different targets or placements. Duplicate registration in the same target throws.
+Each registration belongs to one plugin installation, placement, workspace, and
+(for pills) agent. `id` is plugin-local within that target and uses the same
+format as menu IDs. The same ID may be used in different targets or placements.
+Duplicate registration in the same target throws.
 
-`update(patch: Partial<PluginButton>)` changes the descriptor in place, preserving identity and
-order. When changing `behavior`, supply the complete new behavior object. Invalid updates throw
-without changing the existing button. Subscribe to your own model or the client API and call
-`update` to publish reactive changes; mutating the original descriptor does not update the UI.
+`update(patch: Partial<PluginButton>)` changes the descriptor in place,
+preserving identity and order. When changing `behavior`, supply the complete new
+behavior object. Invalid updates throw without changing the existing button.
+Subscribe to your own model or the client API and call `update` to publish
+reactive changes; mutating the original descriptor does not update the UI.
 
-Hiding or disabling a button closes its surface. Updating its behavior also closes the surface.
-Hiding preserves the registration, so showing it again restores its position. It does not cancel
-an action already in progress.
+Hiding or disabling a button closes its surface. Updating its behavior also
+closes the surface. Hiding preserves the registration, so showing it again
+restores its position. It does not cancel an action already in progress.
 
-`remove()` is idempotent. Updates after removal do nothing. Paseo removes outstanding buttons when
-the plugin installation or host connection is torn down. Return cleanup from the client entry for
-your subscriptions, timers, and other resources.
+`remove()` is idempotent. Updates after removal do nothing. Paseo removes
+outstanding buttons when the plugin installation or host connection is torn
+down. Return cleanup from the client entry for your subscriptions, timers, and
+other resources.
 
 ## Use the Paseo SDK
 
-Use `usePaseo()` for ordinary Paseo operations from a surface. It borrows the selected host's existing connection; do not create another client.
+Use `usePaseo()` for ordinary Paseo operations from a surface. It borrows the
+selected host's existing connection; do not create another client.
 
-`usePaseo()` is your plugin's one Paseo client, the same `client.paseo` your setup receives, in
-every surface. Release what you subscribe to in your cleanup; when the plugin is disabled, reloaded,
-or removed, or its host goes away, Paseo disposes the client and ends every subscription still open.
+`usePaseo()` is your plugin's one Paseo client, the same `client.paseo` your
+setup receives, in every surface. Release what you subscribe to in your cleanup;
+when the plugin is disabled, reloaded, or removed, or its host goes away, Paseo
+disposes the client and ends every subscription still open.
 
 ```tsx
 import { usePaseo } from "@getpaseo/plugin/client";
@@ -2367,7 +2758,10 @@ function ProjectChanges() {
   const [changes, setChanges] = useState(0);
   useEffect(() => {
     const observation = paseo.observeEvents(["project.update"]);
-    observation.subscribe({ snapshot() {}, update: () => setChanges((count) => count + 1) });
+    observation.subscribe({
+      snapshot() {},
+      update: () => setChanges((count) => count + 1),
+    });
     return () => void observation.release();
   }, [paseo]);
   return <Text>{changes} project changes</Text>;
@@ -2405,12 +2799,15 @@ function PullRequestAction({ theme }: PluginSurfaceProps) {
 }
 ```
 
-The returned API covers projects, workspaces, agents, terminals, providers, and daemon config. See the [SDK API reference](/docs/sdk/reference) for its methods. Connection lifecycle methods are intentionally absent because Paseo owns the connection.
+The returned API covers projects, workspaces, agents, terminals, providers, and
+daemon config. See the [SDK API reference](/docs/sdk/reference) for its methods.
+Connection lifecycle methods are intentionally absent because Paseo owns the
+connection.
 
 ### Discover hosts and target another host
 
-Use `useHosts()` to display configured hosts and `getPaseoClient(serverId)` in an action callback
-to run SDK operations on one of them:
+Use `useHosts()` to display configured hosts and `getPaseoClient(serverId)` in
+an action callback to run SDK operations on one of them:
 
 ```tsx
 import { getPaseoClient, useHosts, type PluginSurfaceProps } from "@getpaseo/plugin/client";
@@ -2453,8 +2850,8 @@ export function HostAgents({ theme }: Pick<PluginSurfaceProps, "theme">): ReactE
 }
 ```
 
-`useHosts(): readonly PluginHostSummary[]` includes offline hosts and updates when hosts,
-labels, or statuses change.
+`useHosts(): readonly PluginHostSummary[]` includes offline hosts and updates
+when hosts, labels, or statuses change.
 
 | Summary field | Type or values                                               | Meaning                                                      |
 | ------------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
@@ -2462,9 +2859,10 @@ labels, or statuses change.
 | `label`       | `string`                                                     | Host's display name.                                         |
 | `status`      | `"idle"`, `"connecting"`, `"online"`, `"offline"`, `"error"` | Current app connection status. SDK calls require `"online"`. |
 
-`getPaseoClient(serverId: string): PaseoApi` borrows the host's authenticated app connection.
-Call it in client entry code or callbacks; it opens no socket and does not require the plugin
-on the target daemon. Acquire the API when performing an action to use the current connection.
+`getPaseoClient(serverId: string): PaseoApi` borrows the host's authenticated
+app connection. Call it in client entry code or callbacks; it opens no socket
+and does not require the plugin on the target daemon. Acquire the API when
+performing an action to use the current connection.
 
 | Event or condition                                                                       | Result and caller action                                                                                                                                        |
 | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -2479,15 +2877,19 @@ on the target daemon. Acquire the API when performing an action to use the curre
 
 You can also release individual subscriptions through the normal SDK API.
 
-Plugins are trusted app code; cross-host access is intentional. Summaries contain no connection
-URLs or credentials, and borrowed APIs provide no connection lifecycle controls. See the
+Plugins are trusted app code; cross-host access is intentional. Summaries
+contain no connection URLs or credentials, and borrowed APIs provide no
+connection lifecycle controls. See the
 [host agents example](https://github.com/getpaseo/paseo/tree/main/plugin-examples/hosts).
 
 ## Add plugin-specific backend behavior
 
-Use plugin RPC only for work that is not a normal Paseo operation: reading a vendor API, accessing daemon-local resources, or keeping credentials off the client.
+Use plugin RPC only for work that is not a normal Paseo operation: reading a
+vendor API, accessing daemon-local resources, or keeping credentials off the
+client.
 
-Define one contract with Zod, handle it in the subprocess, and call it from the surface:
+Define one contract with Zod, handle it in the subprocess, and call it from the
+surface:
 
 `shared/greeting.ts`:
 
@@ -2533,7 +2935,11 @@ import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { GreetingButton } from "./client/greeting";
 
 export default function contribute(client: PluginClientContext) {
-  client.addScreen({ id: "main", title: "Greeting", Component: GreetingButton });
+  client.addScreen({
+    id: "main",
+    title: "Greeting",
+    Component: GreetingButton,
+  });
   return () => {};
 }
 ```
@@ -2551,9 +2957,17 @@ export default function contribute(server: PluginServerContext) {
 }
 ```
 
-Inputs and outputs are validated on both sides. RPC names start with a lowercase letter and contain lowercase letters, numbers, dots, hyphens, or underscores. `useRpc()` returns a typed async function. Use TanStack Query for request state, caching, and mutations.
+Inputs and outputs are validated on both sides. RPC names start with a lowercase
+letter and contain lowercase letters, numbers, dots, hyphens, or underscores.
+`useRpc()` returns a typed async function. Use TanStack Query for request state,
+caching, and mutations.
 
-Backend handlers receive the same `PaseoApi` as `{ paseo }`. Their connection belongs to the subprocess and closes when the plugin stops. It does not subscribe to timelines or catalog events until plugin code subscribes. Follow the [SDK event contract](/docs/sdk/events) for cleanup and timeline replacements. Backend code can use Node APIs and dependencies installed in the plugin directory.
+Backend handlers receive the same `PaseoApi` as `{ paseo }`. Their connection
+belongs to the subprocess and closes when the plugin stops. It does not
+subscribe to timelines or catalog events until plugin code subscribes. Follow
+the [SDK event contract](/docs/sdk/events) for cleanup and timeline
+replacements. Backend code can use Node APIs and dependencies installed in the
+plugin directory.
 
 ## Debug backend output
 
@@ -2564,14 +2978,15 @@ console.log("Refreshing issues");
 console.error("Issue refresh failed", error);
 ```
 
-Paseo adds `[paseo]` entries when the plugin starts loading, becomes ready, starts stopping, and has
-stopped. It records compilation and load failures as stderr entries, including failures that happen
-before the plugin subprocess starts. Paseo also captures output emitted during initialization, RPC
-handlers, cleanup, and process failure. Protocol traffic uses a separate channel, so `console.log()`
-cannot corrupt plugin RPCs.
+Paseo adds `[paseo]` entries when the plugin starts loading, becomes ready,
+starts stopping, and has stopped. It records compilation and load failures as
+stderr entries, including failures that happen before the plugin subprocess
+starts. Paseo also captures output emitted during initialization, RPC handlers,
+cleanup, and process failure. Protocol traffic uses a separate channel, so
+`console.log()` cannot corrupt plugin RPCs.
 
-Open **Settings → Plugins → Logs** for the plugin, or inspect the same recent tail from the daemon
-CLI:
+Open **Settings → Plugins → Logs** for the plugin, or inspect the same recent
+tail from the daemon CLI:
 
 ```bash
 paseo plugin logs my-plugin
@@ -2579,22 +2994,25 @@ paseo plugin logs my-plugin --json
 paseo --host <url> plugin logs my-plugin
 ```
 
-The command returns a snapshot rather than following live output. Refresh the settings view or run
-the command again for newer entries. Each entry includes its timestamp, stdout or stderr stream,
-sequence, and message.
+The command returns a snapshot rather than following live output. Refresh the
+settings view or run the command again for newer entries. Each entry includes
+its timestamp, stdout or stderr stream, sequence, and message.
 
-Paseo retains up to 500 entries and 256 KiB per plugin in memory. Individual lines are capped at
-16 KiB. Reload, disable, compilation failure, initialization failure, and process failure retain the
-tail. Removing the plugin clears it, and a daemon restart starts a new tail. Structured copies are
-also written to the daemon log at `$PASEO_HOME/daemon.log`.
+Paseo retains up to 500 entries and 256 KiB per plugin in memory. Individual
+lines are capped at 16 KiB. Reload, disable, compilation failure, initialization
+failure, and process failure retain the tail. Removing the plugin clears it, and
+a daemon restart starts a new tail. Structured copies are also written to the
+daemon log at `$PASEO_HOME/daemon.log`.
 
-Only daemon-side output is captured. Logs from client surfaces remain in the app runtime. Do not log
-credentials, access tokens, or other secrets: connected users can read the retained tail, and the
-daemon log persists it.
+Only daemon-side output is captured. Logs from client surfaces remain in the app
+runtime. Do not log credentials, access tokens, or other secrets: connected
+users can read the retained tail, and the daemon log persists it.
 
 ## Add a composer attachment source
 
-An attachment source searches external resources and returns a stable text snapshot for an agent prompt. Keep credentials and vendor calls in the backend handler.
+An attachment source searches external resources and returns a stable text
+snapshot for an agent prompt. Keep credentials and vendor calls in the backend
+handler.
 
 `shared/issues.ts`:
 
@@ -2666,35 +3084,44 @@ export default function contribute(server: PluginServerContext) {
 }
 ```
 
-Paseo owns the composer menu, search picker, selected pill, draft state, and submission. The `text` value is the complete snapshot sent to the agent. `icon` is a Lucide name or `{ svg }`; see [Icons](#icons).
+Paseo owns the composer menu, search picker, selected pill, draft state, and
+submission. The `text` value is the complete snapshot sent to the agent. `icon`
+is a Lucide name or `{ svg }`; see [Icons](#icons).
 
 ## Hosts and lifecycle
 
-Plugins are installed per daemon. When the same contribution exists on several connected hosts, Paseo shows one sidebar item and adds a host picker. The selected host supplies the bundle, Paseo API, RPC transport, and query cache. Calls never fall through to another host when the selected host is offline.
+Plugins are installed per daemon. When the same contribution exists on several
+connected hosts, Paseo shows one sidebar item and adds a host picker. The
+selected host supplies the bundle, Paseo API, RPC transport, and query cache.
+Calls never fall through to another host when the selected host is offline.
 
 Attachment sources remain scoped to each composer's host.
 
-Workspace panels and Command Center items stay scoped to the active host and exact cached context.
-Reload replaces their registrations. Disable, removal, host disconnect, and evaluation failure
-remove Command Center items and clear the installation's query state. An already-restored panel tab
-remains as unavailable until its matching contribution returns or the user closes it. Panel render
-failures stay inside the plugin error boundary.
+Workspace panels and Command Center items stay scoped to the active host and
+exact cached context. Reload replaces their registrations. Disable, removal,
+host disconnect, and evaluation failure remove Command Center items and clear
+the installation's query state. An already-restored panel tab remains as
+unavailable until its matching contribution returns or the user closes it. Panel
+render failures stay inside the plugin error boundary.
 
-Reload queues behind the daemon's other plugin work, such as a running installation or preparation
-command, and the daemon answers when the plugin is running again or has failed. Nothing reads the
-plugin's status as the reload's outcome: while the reload is queued, `plugin ls`, Settings, and the
-logs show the plugin's previous state, and while the daemon stops and starts it, a status read
-reports `failed` because the plugin is absent from the runtime catalog until its start completes.
+Reload queues behind the daemon's other plugin work, such as a running
+installation or preparation command, and the daemon answers when the plugin is
+running again or has failed. Nothing reads the plugin's status as the reload's
+outcome: while the reload is queued, `plugin ls`, Settings, and the logs show
+the plugin's previous state, and while the daemon stops and starts it, a status
+read reports `failed` because the plugin is absent from the runtime catalog
+until its start completes.
 
 ## Plugin sources
 
 Paste one of these source identifiers into **Settings → Plugins**, or pass it to
-`paseo plugin install`. `paseo plugin add <source>` and `paseo plugin install <source>` are aliases.
-The CLI resolves relative directory paths from your current working directory and expands `~`
-to your local home directory, preserving any `:plugin/path` suffix. With `--host`, use an absolute
-path that exists on the daemon host; plugin files are read there and are never uploaded by the CLI.
-Paths entered in Settings resolve relative to the daemon's working directory, and `~` expands to
-the daemon's home directory.
+`paseo plugin install`. `paseo plugin add <source>` and
+`paseo plugin install <source>` are aliases. The CLI resolves relative directory
+paths from your current working directory and expands `~` to your local home
+directory, preserving any `:plugin/path` suffix. With `--host`, use an absolute
+path that exists on the daemon host; plugin files are read there and are never
+uploaded by the CLI. Paths entered in Settings resolve relative to the daemon's
+working directory, and `~` expands to the daemon's home directory.
 
 | Source                     | Accepted form                                                              | Example                                       |
 | -------------------------- | -------------------------------------------------------------------------- | --------------------------------------------- |
@@ -2705,45 +3132,56 @@ the daemon's home directory.
 | npm package                | `npm:<name>[@<version, tag, or range>]`; `npm:` is optional                | `npm:@acme/paseo-review@^1.2.0`               |
 | Plugin below a source root | Append `:relative/plugin/path` to a directory, Git, or npm source          | `github:acme/monorepo:plugins/review`         |
 
-Git URLs use `https://`, `http://`, `ssh://`, `git://`, or `file://`. SCP sources use
-`user@host:path`. `file://` selects Git acquisition, not directory installation.
+Git URLs use `https://`, `http://`, `ssh://`, `git://`, or `file://`. SCP
+sources use `user@host:path`. `file://` selects Git acquisition, not directory
+installation.
 
-npm names are lowercase unscoped `name` or scoped `@scope/name`. Each component starts with a
-letter or digit and then contains letters, digits, `.`, `_`, or `-`. After the package name, an
-optional `@` introduces an exact version, distribution tag, or npm semver range. Omitting it means
-`latest`. Quote shell arguments containing spaces or comparison operators. npm aliases, tarball
-URLs, and npm's `file:` specifications are not plugin source identifiers; use a directory or Git
-source for those locations. Use the `npm:` prefix for an unscoped package with both a selector
-and subdirectory (`npm:review@1.2.0:nested`); without it, `user@host:path` is an SCP Git source.
+npm names are lowercase unscoped `name` or scoped `@scope/name`. Each component
+starts with a letter or digit and then contains letters, digits, `.`, `_`, or
+`-`. After the package name, an optional `@` introduces an exact version,
+distribution tag, or npm semver range. Omitting it means `latest`. Quote shell
+arguments containing spaces or comparison operators. npm aliases, tarball URLs,
+and npm's `file:` specifications are not plugin source identifiers; use a
+directory or Git source for those locations. Use the `npm:` prefix for an
+unscoped package with both a selector and subdirectory
+(`npm:review@1.2.0:nested`); without it, `user@host:path` is an SCP Git source.
 The package registry validates the selected version, tag, or range.
 
 Paseo resolves an identifier in this order:
 
-1. A bare `owner/slug` is a registry id; local directory sources are `.` or `..`, or start with `./`, `../`, `.\`, `..\`, `/`, `~`, a Windows drive (`C:\` or `C:/`), or a UNC (`\\server\share`) prefix.
-2. Otherwise, recognize `npm:`, `github:`, or `git:` before interpreting a subdirectory suffix.
-   `git://` is a Git URL scheme. An explicit prefix selects acquisition of that kind.
-3. Recognize a final `:relative/plugin/path` only when its suffix contains no empty, `.` or `..`
-   segments. A lone `.` selects the source root. Both `/` and `\` separate suffix segments; use `/`
-   across hosts. URL ports and the separator in an SCP source stay part of the source. A suffix
-   that does not satisfy these rules stays part of the identifier.
-4. Resolve bare `owner/slug` through the default plugin registry and `host/owner/slug` through
-   that registry host. Resolve Git URLs and SCP sources as Git. `github:` requires
-   `owner/repository` shorthand; `git:` accepts it as well as URLs and SCP sources.
-5. Resolve a remaining npm package name with its optional selector through the host's registry.
-   Reject anything else.
+1. A bare `owner/slug` is a registry id; local directory sources are `.` or
+   `..`, or start with `./`, `../`, `.\`, `..\`, `/`, `~`, a Windows drive
+   (`C:\` or `C:/`), or a UNC (`\\server\share`) prefix.
+2. Otherwise, recognize `npm:`, `github:`, or `git:` before interpreting a
+   subdirectory suffix. `git://` is a Git URL scheme. An explicit prefix selects
+   acquisition of that kind.
+3. Recognize a final `:relative/plugin/path` only when its suffix contains no
+   empty, `.` or `..` segments. A lone `.` selects the source root. Both `/` and
+   `\` separate suffix segments; use `/` across hosts. URL ports and the
+   separator in an SCP source stay part of the source. A suffix that does not
+   satisfy these rules stays part of the identifier.
+4. Resolve bare `owner/slug` through the default plugin registry and
+   `host/owner/slug` through that registry host. Resolve Git URLs and SCP
+   sources as Git. `github:` requires `owner/repository` shorthand; `git:`
+   accepts it as well as URLs and SCP sources.
+5. Resolve a remaining npm package name with its optional selector through the
+   host's registry. Reject anything else.
 
-The default registry is `https://plugins.paseo.sh`. Browse [published plugins](https://paseo.sh/plugins)
-and install with `paseo plugin add owner/slug`. Registry records own the revision and plugin path.
-Use `git:owner/repository` for explicit GitHub shorthand or a full Git URL.
-Set `PASEO_PLUGIN_REGISTRY` to use a self-hosted default URL, including a path prefix.
-Private registry credentials use `pluginRegistries: { "host": { "authorization": "Bearer token" } }`
-in daemon config. Restart the daemon after changing these startup settings. Credentials go only
-to that registry, never to artifact hosts or redirects. Installed plugins retain their recorded
-source and registry URL when defaults change.
+The default registry is `https://plugins.paseo.sh`. Browse
+[published plugins](https://paseo.sh/plugins) and install with
+`paseo plugin add owner/slug`. Registry records own the revision and plugin
+path. Use `git:owner/repository` for explicit GitHub shorthand or a full Git
+URL. Set `PASEO_PLUGIN_REGISTRY` to use a self-hosted default URL, including a
+path prefix. Private registry credentials use
+`pluginRegistries: { "host": { "authorization": "Bearer token" } }` in daemon
+config. Restart the daemon after changing these startup settings. Credentials go
+only to that registry, never to artifact hosts or redirects. Installed plugins
+retain their recorded source and registry URL when defaults change.
 
-Directory lookup happens on the daemon host. The app uses the `paseo-plugin.json` ID; the CLI
-accepts `--id <runtime-id>` to override it. An existing installation ID is rejected without changing
-its enabled state or files.
+Directory lookup happens on the daemon host. The app uses the
+`paseo-plugin.json` ID; the CLI accepts `--id <runtime-id>` to override it. An
+existing installation ID is rejected without changing its enabled state or
+files.
 
 ```bash
 paseo plugin install /srv/paseo/plugins/review
@@ -2757,29 +3195,36 @@ paseo plugin install 'npm:@acme/paseo-review@>=1.2.0 <2.0.0' --id review-staging
 paseo plugin install npm:@acme/plugins@^1.2.0:plugins/review
 ```
 
-`--ref` applies only to Git and accepts a branch, tag, or commit for this installation. Without it,
-Paseo installs the remote's default HEAD. Installation selectors do not constrain later updates. The legacy
-`--path relative/plugin/path` option is equivalent to a subdirectory suffix, including for npm.
+`--ref` applies only to Git and accepts a branch, tag, or commit for this
+installation. Without it, Paseo installs the remote's default HEAD. Installation
+selectors do not constrain later updates. The legacy
+`--path relative/plugin/path` option is equivalent to a subdirectory suffix,
+including for npm.
 
 ### npm installation and publishing
 
-Install Node.js with npm on the **daemon host** and make `npm` available on the daemon's `PATH`.
-The daemon uses that host's npm user/global configuration and environment for registry selection
-and authentication, including scope-specific registries. The client does not download packages or
-run npm. Loading, enabling, and reloading an installed plugin do not need npm.
+Install Node.js with npm on the **daemon host** and make `npm` available on the
+daemon's `PATH`. The daemon uses that host's npm user/global configuration and
+environment for registry selection and authentication, including scope-specific
+registries. The client does not download packages or run npm. Loading, enabling,
+and reloading an installed plugin do not need npm.
 
-The daemon installs each candidate and its production dependencies in an isolated directory. It
-keeps the complete dependency tree and `package-lock.json` when activating it. The installed
-package and lockfile provide its current version and artifact integrity. A version, tag, or range
+The daemon installs each candidate and its production dependencies in an
+isolated directory. It keeps the complete dependency tree and
+`package-lock.json` when activating it. The installed package and lockfile
+provide its current version and artifact integrity. A version, tag, or range
 chooses content for this installation only.
 
-The installed lockfile records what this installation resolved. Authors submitting npm plugins
-with runtime dependencies must also ship the [publication lock](/docs/plugins/publishing#2-lock-installed-dependencies).
-For package contents, preparation and submission, see [Publish a plugin](/docs/plugins/publishing).
+The installed lockfile records what this installation resolved. Authors
+submitting npm plugins with runtime dependencies must also ship the
+[publication lock](/docs/plugins/publishing#2-lock-installed-dependencies). For
+package contents, preparation and submission, see
+[Publish a plugin](/docs/plugins/publishing).
 
-A failed download, dependency installation, manifest check, preparation command, compilation, or
-activation discards the candidate. Other installed plugins keep running. Removing an npm plugin
-deletes its managed files; removing a directory plugin keeps your source directory.
+A failed download, dependency installation, manifest check, preparation command,
+compilation, or activation discards the candidate. Other installed plugins keep
+running. Removing an npm plugin deletes its managed files; removing a directory
+plugin keeps your source directory.
 
 ## CLI reference
 
@@ -2804,40 +3249,52 @@ paseo plugin enable my-plugin
 paseo plugin remove my-plugin
 ```
 
-`ls` and Settings show source identity and the current installed revision without contacting the
-remote. Identity includes the selected subdirectory and excludes installation selectors.
+`ls` and Settings show source identity and the current installed revision
+without contacting the remote. Identity includes the selected subdirectory and
+excludes installation selectors.
 
-`update <id>` checks for an update, shows the current and proposed revision with available review
-links, and asks for approval. Declining leaves the installed content unchanged.
+`update <id>` checks for an update, shows the current and proposed revision with
+available review links, and asks for approval. Declining leaves the installed
+content unchanged.
 
-- npm checks the package's `latest` version. It offers only a newer version; an installed version
-  newer than latest stays installed. Host npm registry/auth configuration governs resolution.
-- Git checks the remote's current default HEAD, regardless of the branch, tag, or commit selected
-  during installation.
+- npm checks the package's `latest` version. It offers only a newer version; an
+  installed version newer than latest stays installed. Host npm registry/auth
+  configuration governs resolution.
+- Git checks the remote's current default HEAD, regardless of the branch, tag,
+  or commit selected during installation.
 - Directory plugins are skipped; edit the directory and use `reload`.
 
-`--check` only previews, including with an explicit target or `--yes`. `--yes` skips the question.
-`--all` checks each configured plugin and reports independent results; one failure does not stop
-others. Neither flag permits ordinary npm downgrades.
+`--check` only previews, including with an explicit target or `--yes`. `--yes`
+skips the question. `--all` checks each configured plugin and reports
+independent results; one failure does not stop others. Neither flag permits
+ordinary npm downgrades.
 
-`--version <version|tag|range>` or `--ref <branch|tag|commit>` selects one matching plugin's update
-content and applies it without another question. An explicit npm version can be older. The next
-ordinary update checks latest again. Explicit targets cannot be combined with `--all`.
-JSON and noninteractive ordinary updates require `--yes`.
+`--version <version|tag|range>` or `--ref <branch|tag|commit>` selects one
+matching plugin's update content and applies it without another question. An
+explicit npm version can be older. The next ordinary update checks latest again.
+Explicit targets cannot be combined with `--all`. JSON and noninteractive
+ordinary updates require `--yes`.
 
-Approval acquires exactly the reviewed commit or npm artifact. If it is unavailable or the installed
-plugin changed while reviewing, the update fails and asks you to check again. Failed preparation or
-activation retains the previous installation. Manual app update review is not available yet.
+Approval acquires exactly the reviewed commit or npm artifact. If it is
+unavailable or the installed plugin changed while reviewing, the update fails
+and asks you to check again. Failed preparation or activation retains the
+previous installation. Manual app update review is not available yet.
 
-Put `--host <url>` before a management command when the target is not the CLI's default daemon. `remove`
-never deletes a directory source; it deletes managed files for Git and npm sources. The install-time
-`--id` is the runtime ID and allows the same directory or repository to be installed more than once.
+Put `--host <url>` before a management command when the target is not the CLI's
+default daemon. `remove` never deletes a directory source; it deletes managed
+files for Git and npm sources. The install-time `--id` is the runtime ID and
+allows the same directory or repository to be installed more than once.
 
-> **Trust every plugin you add.** `paseo plugin add` and `paseo plugin install` mean “I trust this codebase.” Server code and preparation commands run unsandboxed with the daemon user's access on the daemon host; client contributions run inside Paseo. Dependencies and future updates are part of that decision. With the global `--host` option, commands run on the remote daemon host.
+> **Trust every plugin you add.** `paseo plugin add` and `paseo plugin install`
+> mean “I trust this codebase.” Server code and preparation commands run
+> unsandboxed with the daemon user's access on the daemon host; client
+> contributions run inside Paseo. Dependencies and future updates are part of
+> that decision. With the global `--host` option, commands run on the remote
+> daemon host.
 
-Most plugins should omit `build`. Use it only when the staged checkout must install a dependency
-that Paseo does not provide, generate source or assets, or perform another required preparation
-step:
+Most plugins should omit `build`. Use it only when the staged checkout must
+install a dependency that Paseo does not provide, generate source or assets, or
+perform another required preparation step:
 
 ```json
 {
@@ -2847,19 +3304,28 @@ step:
 }
 ```
 
-`build` is a list of non-empty argv arrays. Paseo runs each executable directly, without a shell,
-from the staged plugin directory after resolving the exact commit and manifest. It never infers a
-package manager or commands from lockfiles. Install and update both run `build` before validation,
-compilation, activation, or replacement. A failing command reports its output, discards the
-candidate, and leaves the installed/running version intact. The daemon log records each command and
-output; with the global `--host` option, execution is on that daemon host.
+`build` is a list of non-empty argv arrays. Paseo runs each executable directly,
+without a shell, from the staged plugin directory after resolving the exact
+commit and manifest. It never infers a package manager or commands from
+lockfiles. Install and update both run `build` before validation, compilation,
+activation, or replacement. A failing command reports its output, discards the
+candidate, and leaves the installed/running version intact. The daemon log
+records each command and output; with the global `--host` option, execution is
+on that daemon host.
 
-Run `npm run typecheck` before install or reload. Manage plugin source entries with the CLI or
-Settings; see [Plugin sources](#plugin-sources) for install syntax.
+Run `npm run typecheck` before install or reload. Manage plugin source entries
+with the CLI or Settings; see [Plugin sources](#plugin-sources) for install
+syntax.
 
-The daemon-wide **Enable plugins** switch lives under **Settings → Plugins**. A configured plugin remains `disabled` until that switch and the plugin's own enabled state are both on.
+The daemon-wide **Enable plugins** switch lives under **Settings → Plugins**. A
+configured plugin remains `disabled` until that switch and the plugin's own
+enabled state are both on.
 
-The switch is the root `pluginsEnabled` field in `config.json`. After changing it, run `paseo reload --json`. Enabling starts every configured plugin whose own `enabled` value is not `false`; disabling tears down all plugins. No daemon restart is required. Manual edits to plugin source entries are not reloaded; use the plugin lifecycle commands for those.
+The switch is the root `pluginsEnabled` field in `config.json`. After changing
+it, run `paseo reload --json`. Enabling starts every configured plugin whose own
+`enabled` value is not `false`; disabling tears down all plugins. No daemon
+restart is required. Manual edits to plugin source entries are not reloaded; use
+the plugin lifecycle commands for those.
 
 ## Load failures
 

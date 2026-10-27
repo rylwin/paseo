@@ -1205,6 +1205,7 @@ export class PiRpcAgentSession implements AgentSession {
   private readonly contextUserEntries: PiCapturedEntry[] = [];
   private readonly treeUserEntriesById = new Map<string, PiCapturedEntry>();
   private readonly pendingExtensionResults = new Map<string, PendingExtensionResult>();
+  private compactionPromise: Promise<void> | null = null;
   private outOfBandCompactionEmit: ((event: AgentStreamEvent) => void) | null = null;
   private outOfBandCompactionStarted = false;
   private outOfBandCompactionCompleted = false;
@@ -1312,6 +1313,15 @@ export class PiRpcAgentSession implements AgentSession {
 
     void (async () => {
       try {
+        if (this.compactionPromise) {
+          // Pi RPC rejects prompts until the manual compaction request settles.
+          await this.compactionPromise.catch(() => undefined);
+          const turnCanceled =
+            this.closed || this.activeTurnId !== turnId || this.interruptingTurn?.turnId === turnId;
+          if (turnCanceled) {
+            return;
+          }
+        }
         const ack = await this.runtimeSession.prompt(payload.text, payload.images);
         this.activePromptRequestId = ack.requestId ?? null;
         const correlatedResult = ack.requestId
@@ -1597,6 +1607,22 @@ export class PiRpcAgentSession implements AgentSession {
     return await resultPromise;
   }
 
+  async canStopRuntime(): Promise<boolean> {
+    if (
+      this.closed ||
+      this.activeTurnId ||
+      this.pendingExtensionUiRequests.size ||
+      this.pendingExtensionResults.size ||
+      this.pendingExtensionHydrations.size ||
+      this.pendingSteerSubmissions.length ||
+      this.pendingNoTurnOutputs.length ||
+      this.interruptingTurn
+    )
+      return false;
+    const state = await this.runtimeSession.getState();
+    return !state.isStreaming && !state.isCompacting && state.pendingMessageCount === 0;
+  }
+
   async close(): Promise<void> {
     if (this.closed) {
       return;
@@ -1804,7 +1830,8 @@ export class PiRpcAgentSession implements AgentSession {
     this.outOfBandCompactionStarted = false;
     this.outOfBandCompactionCompleted = false;
     try {
-      await this.runtimeSession.compact(customInstructions);
+      this.compactionPromise = this.runtimeSession.compact(customInstructions);
+      await this.compactionPromise;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (
@@ -1830,6 +1857,7 @@ export class PiRpcAgentSession implements AgentSession {
         },
       });
     } finally {
+      this.compactionPromise = null;
       if (this.outOfBandCompactionEmit === emit && !this.outOfBandCompactionStarted) {
         this.outOfBandCompactionEmit = null;
         this.outOfBandCompactionStarted = false;

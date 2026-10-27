@@ -8,10 +8,12 @@ category: Plugins
 
 # Build a provider plugin
 
-Start with the [plugin quickstart](/docs/plugins) if you have not built a Paseo plugin before.
+Start with the [plugin quickstart](/docs/plugins) if you have not built a Paseo
+plugin before.
 
-A provider plugin connects a coding agent to Paseo without adding it to Paseo core. [Publish the plugin](/docs/plugins/publishing) on npm or in a Git repository so users can
-install it with `paseo plugin install`.
+A provider plugin connects a coding agent to Paseo without adding it to Paseo
+core. [Publish the plugin](/docs/plugins/publishing) on npm or in a Git
+repository so users can install it with `paseo plugin install`.
 
 Choose one implementation path:
 
@@ -22,9 +24,14 @@ Choose one implementation path:
 
 The examples are:
 
-- [`provider-direct`](https://github.com/getpaseo/paseo/tree/main/plugin-examples/provider-direct): sessions, settings, prompts, persistence, child sessions, and a provider-owned timeline renderer;
-- [`provider-acp-transformer`](https://github.com/getpaseo/paseo/tree/main/plugin-examples/provider-acp-transformer): an ACP command template with a Zod-validated vendor edit transformer. Replace `example-acp --stdio` with an installed ACP agent before loading it;
-- [`inline-thinking`](https://github.com/getpaseo/paseo/tree/main/plugin-examples/inline-thinking): a renderer-only plugin that does not implement a provider.
+- [`provider-direct`](https://github.com/getpaseo/paseo/tree/main/plugin-examples/provider-direct):
+  sessions, settings, prompts, persistence, child sessions, and a provider-owned
+  timeline renderer;
+- [`provider-acp-transformer`](https://github.com/getpaseo/paseo/tree/main/plugin-examples/provider-acp-transformer):
+  an ACP command template with a Zod-validated vendor edit transformer. Replace
+  `example-acp --stdio` with an installed ACP agent before loading it;
+- [`inline-thinking`](https://github.com/getpaseo/paseo/tree/main/plugin-examples/inline-thinking):
+  a renderer-only plugin that does not implement a provider.
 
 ## Register a direct provider
 
@@ -68,22 +75,26 @@ The connection has three operations:
 
 - `send(input)` accepts work and returns. Results are events, not return values.
 - `onEvent(listener)` publishes session state and complete timeline snapshots.
-- `close()` stops every session and releases processes, subscriptions, and pending work.
+- `close()` stops every session and releases processes, subscriptions, and
+  pending work.
 
-Keep the native SDK, process, and stream inside the connection implementation. Convert its output
-to `ProviderEvent` objects before publishing it.
+Keep the native SDK, process, and stream inside the connection implementation.
+Convert its output to `ProviderEvent` objects before publishing it.
 
 ## Launch the provider CLI
 
-Use `spawnProcess` and `execCommand` from `@getpaseo/plugin/server` for process transports
-and CLI probes. Both handle Windows `.cmd`/`.bat` launchers and quote shell arguments.
-Raw Node `spawn` and `execFile` reject those launchers on Windows.
+Use `spawnProcess` and `execCommand` from `@getpaseo/plugin/server` for process
+transports and CLI probes. Both handle Windows `.cmd`/`.bat` launchers and quote
+shell arguments. Raw Node `spawn` and `execFile` reject those launchers on
+Windows.
 
-The daemon supplies `request.launch` with the resolved command, argument prefix, and complete
-environment. Pass that environment explicitly; the helpers do not apply daemon environment policy.
-Keep the process lifecycle and protocol deadlines inside your provider. End stdin for graceful
-shutdown; use `terminateProcess(child)` for a forced stop. It kills the process tree on Windows,
-including the CLI behind a command-script launcher. Bound your final wait for closed streams.
+The daemon supplies `request.launch` with the resolved command, argument prefix,
+and complete environment. Pass that environment explicitly; the helpers do not
+apply daemon environment policy. Keep the process lifecycle and protocol
+deadlines inside your provider. End stdin for graceful shutdown; use
+`terminateProcess(child)` for a forced stop. It kills the process tree on
+Windows, including the CLI behind a command-script launcher. Bound your final
+wait for closed streams.
 
 ```ts
 import { spawnProcess, execCommand } from "@getpaseo/plugin/server";
@@ -101,7 +112,8 @@ const { stdout } = await execCommand(launch.command, [...launch.args, "--version
 
 ## Return models, modes, and thinking options
 
-Paseo requests the catalog before creating a session. Return the choices needed by the agent form:
+Paseo requests the catalog before creating a session. Return the choices needed
+by the agent form:
 
 ```ts
 if (input.type === "catalog") {
@@ -129,24 +141,26 @@ if (input.type === "catalog") {
 }
 ```
 
-Return an empty array for a category the agent does not expose. The selected `model`, `mode`, and
-`thinkingOption` arrive in the session configuration.
+Return an empty array for a category the agent does not expose. The selected
+`model`, `mode`, and `thinkingOption` arrive in the session configuration.
 
-The catalog describes choices available before a session exists. Session-specific controls come
-later through `session.config`.
+The catalog describes choices available before a session exists.
+Session-specific controls come later through `session.config`.
 
 ## Open a session
 
-`session.open` contains the complete launch configuration: working directory, environment, system
-prompt, MCP servers, tool policy, model, mode, settings, opaque provider options, and persistence
-preference.
+`session.open` contains the complete launch configuration: working directory,
+environment, system prompt, MCP servers, tool policy, model, mode, settings,
+opaque provider options, and persistence preference.
 
-For persisted host-scoped plugin settings, use the handle returned by `server.registerSettings()`.
-Read it in catalog and session callbacks, and subscribe when the provider keeps in-memory
-configuration. See [settings](./reference.md#persisted-values) for the `read()` and `subscribe()`
+For persisted host-scoped plugin settings, use the handle returned by
+`server.registerSettings()`. Read it in catalog and session callbacks, and
+subscribe when the provider keeps in-memory configuration. See
+[settings](./reference.md#persisted-values) for the `read()` and `subscribe()`
 contract.
 
-Create the native session with the selected catalog values, then publish its effective state:
+Create the native session with the selected catalog values, then publish its
+effective state:
 
 ```ts
 const nativeSession = await sdk.createSession({
@@ -180,16 +194,20 @@ emit({
     settings: [],
   },
 });
-emit({ type: "session.ready", requestId: input.requestId, sessionId: input.sessionId });
+emit({
+  type: "session.ready",
+  requestId: input.requestId,
+  sessionId: input.sessionId,
+});
 ```
 
-`session.config` contains the committed values. Publish what the native agent selected after
-normalization, not a copy of the request.
+`session.config` contains the committed values. Publish what the native agent
+selected after normalization, not a copy of the request.
 
 ## Complete the first prompt
 
-Start with message prompts. Advertise `prompt.message`, pass the content to the native agent, and
-publish the resulting lifecycle:
+Start with message prompts. Advertise `prompt.message`, pass the content to the
+native agent, and publish the resulting lifecycle:
 
 ```ts
 const turnId = crypto.randomUUID();
@@ -216,23 +234,29 @@ emit({ type: "session.turn", sessionId, turnId, state: "started" });
 emit({
   type: "timeline.item",
   sessionId,
-  item: { type: "assistant_message", id: `assistant:${turnId}`, text: completeText },
+  item: {
+    type: "assistant_message",
+    id: `assistant:${turnId}`,
+    text: completeText,
+  },
 });
 
 emit({ type: "session.turn", sessionId, turnId, state: "completed" });
 ```
 
-Publish exactly one `session.prompt_result` for each `clientMessageId`. Copy `clientMessageId` onto
-the user timeline item so Paseo replaces its optimistic message. Every started turn needs one
-terminal `completed`, `failed`, or `canceled` event.
+Publish exactly one `session.prompt_result` for each `clientMessageId`. Copy
+`clientMessageId` onto the user timeline item so Paseo replaces its optimistic
+message. Every started turn needs one terminal `completed`, `failed`, or
+`canceled` event.
 
-At this point the provider is usable: users can select a model, open a session, send a message, and
-see the response.
+At this point the provider is usable: users can select a model, open a session,
+send a message, and see the response.
 
 ## Add session-specific composer controls
 
-Add `session.configure` only when the native agent has settings users should change after opening a
-session. Publish them in `session.config` as toggle or select controls:
+Add `session.configure` only when the native agent has settings users should
+change after opening a session. Publish them in `session.config` as toggle or
+select controls:
 
 ```ts
 emit({
@@ -265,31 +289,37 @@ emit({
 });
 ```
 
-Paseo renders these controls in the composer. A user change arrives as `session.configure`; apply it
-and publish the committed `session.config` before `request.completed`. The provider may change the
-available controls at runtime, including after a model change.
+Paseo renders these controls in the composer. A user change arrives as
+`session.configure`; apply it and publish the committed `session.config` before
+`request.completed`. The provider may change the available controls at runtime,
+including after a model change.
 
-`settings` are user-facing controls. `providerOptions` is opaque JSON supplied at session creation
-for provider-specific configuration that Paseo does not render. A provider-specific token budget
-belongs in one of those two places; it is not a dedicated prompt field.
+`settings` are user-facing controls. `providerOptions` is opaque JSON supplied
+at session creation for provider-specific configuration that Paseo does not
+render. A provider-specific token budget belongs in one of those two places; it
+is not a dedicated prompt field.
 
 ## Add persistence and replay
 
-Advertise `session.persistence` when a native session can be reopened. Open a new native session
-when `session.open.persistence` is absent. Resume the identified native session when it is present.
-Return an opaque persistence value in `session.opened` or `session.persistence`; Paseo stores it
-without inspecting it.
+Advertise `session.persistence` when a native session can be reopened. Open a
+new native session when `session.open.persistence` is absent. Resume the
+identified native session when it is present. Return an opaque persistence value
+in `session.opened` or `session.persistence`; Paseo stores it without inspecting
+it.
 
-When `history` is `"replay"`, publish the native session's existing `timeline.item` snapshots before
-`session.ready`. Use `history: "skip"` to open without replaying old rows.
+When `history` is `"replay"`, publish the native session's existing
+`timeline.item` snapshots before `session.ready`. Use `history: "skip"` to open
+without replaying old rows.
 
-Paseo refreshes an agent by closing its current provider session and opening it again with current
-configuration and persistence. Re-read credentials, environment, global configuration, and MCP
-servers during `session.open`. There is no separate reload operation.
+Paseo refreshes an agent by closing its current provider session and opening it
+again with current configuration and persistence. Re-read credentials,
+environment, global configuration, and MCP servers during `session.open`. There
+is no separate reload operation.
 
-Use `restoration: "core"` when Paseo can reopen a session from persistence. A provider-owned child
-uses `restoration: "parent"`; emit it as another `session.opened` event with `parentSessionId` and
-recreate it while restoring the parent.
+Use `restoration: "core"` when Paseo can reopen a session from persistence. A
+provider-owned child uses `restoration: "parent"`; emit it as another
+`session.opened` event with `parentSessionId` and recreate it while restoring
+the parent.
 
 ## Add commands and steering
 
@@ -300,20 +330,74 @@ All user input arrives through `session.prompt`:
 - `delivery: "steer"` asks you to add input to the active turn;
 - `delivery: "auto"` lets you start a turn or complete a command without one.
 
-Publish `session.commands` to add structured commands to the composer. A command can start a normal
-turn or finish as a side effect with a `completed` prompt result.
+Publish `session.commands` to add structured commands to the composer. A command
+can start a normal turn or finish as a side effect with a `completed` prompt
+result.
 
-Advertise only capabilities you implement. If steering is unsupported, omit `prompt.steer`; Paseo
-can replace the active turn instead.
+Advertise only capabilities you implement. If steering is unsupported, omit
+`prompt.steer`; Paseo can replace the active turn instead.
+
+## Permit idle runtime cleanup
+
+Paseo can release an idle resumable session after one hour when its daemon
+baseline allows cleanup. Add a provider-owned veto by advertising
+`session.can_stop_runtime` on the connection and the session's `session.opened`
+capabilities. Without this capability, the same baseline and one-hour idle
+period apply, and the plugin receives no safety request.
+
+Handle the safety query in your existing `send(input)` handler. It addresses the
+provider's own session ID, including when one connection serves several
+sessions:
+
+```ts
+case "session.can_stop_runtime": {
+  try {
+    const session = sessions.get(input.sessionId);
+    if (!session) throw new Error("Session not found");
+    emit({
+      type: "session.can_stop_runtime",
+      requestId: input.requestId,
+      sessionId: input.sessionId,
+      canStop: await session.canStopRuntime(),
+    });
+  } catch (error) {
+    emit({
+      type: "request.failed",
+      requestId: input.requestId,
+      error: { message: error instanceof Error ? error.message : String(error) },
+    });
+  }
+  return;
+}
+```
+
+`canStopRuntime(): Promise<boolean>` belongs to your provider's session
+implementation. Return `true` only when releasing the runtime loses no
+background shells, monitors, native children, queued completion reports, or
+pending autonomous replies. This query must not stop or mutate the session.
+Return `false` while work remains. A rejected query, invalid response, or
+timeout also keeps the runtime alive. Never respond with `request.completed` for
+this query.
+
+Paseo always checks foreground work, permissions, queued deliveries, lifecycle
+operations, working managed/native descendants, and outstanding local or remote
+finish subscriptions for the caller. Subscription protection lasts through
+registration, recovery and notification dispatch acknowledgment. A positive
+provider response never overrides these blockers. Paseo rechecks activity before
+the existing `session.close` operation. After protected work finishes, a fresh
+one-hour idle period starts. The saved provider persistence must resume the same
+conversation. The host setting `agents.idleRuntimeCleanup: false` disables
+collection for every provider.
 
 ## Publish timeline items
 
-Publish complete snapshots through `timeline.item`. Reuse an item `id` when updating streamed text,
-a running tool, or a todo list. Paseo derives the live delta and keeps the normal timeline.
+Publish complete snapshots through `timeline.item`. Reuse an item `id` when
+updating streamed text, a running tool, or a todo list. Paseo derives the live
+delta and keeps the normal timeline.
 
-Built-in item types cover user and assistant messages, reasoning, tools, todos, errors,
-notifications, and compaction. Use a plugin item when your provider has a presentation that those
-types cannot express:
+Built-in item types cover user and assistant messages, reasoning, tools, todos,
+errors, notifications, and compaction. Use a plugin item when your provider has
+a presentation that those types cannot express:
 
 ```ts
 emit({
@@ -353,8 +437,9 @@ export default function contribute(client: PluginClientContext) {
 }
 ```
 
-The same renderer can display items emitted by a provider, a client timeline transformer, or a
-daemon timeline append. A renderer does not require a provider implementation.
+The same renderer can display items emitted by a provider, a client timeline
+transformer, or a daemon timeline append. A renderer does not require a provider
+implementation.
 
 ## Adapt an ACP agent
 
@@ -377,11 +462,12 @@ export default function contribute(server: PluginServerContext) {
 }
 ```
 
-The shim owns the ACP process, capability mapping, session lifecycle, prompts, permissions, and
-timeline conversion. Do not copy that machinery into the plugin.
+The shim owns the ACP process, capability mapping, session lifecycle, prompts,
+permissions, and timeline conversion. Do not copy that machinery into the
+plugin.
 
-Use `transformers` only for vendor differences ACP cannot describe. Validate vendor payloads with
-Zod and leave malformed or unrelated values unchanged:
+Use `transformers` only for vendor differences ACP cannot describe. Validate
+vendor payloads with Zod and leave malformed or unrelated values unchanged:
 
 ```ts
 import type { AcpTransformer } from "@getpaseo/plugin/server/acp";
@@ -418,12 +504,14 @@ Test the provider against the real agent, not only mocked frames:
 1. install the plugin as a directory source;
 2. confirm its SVG, models, modes, and settings appear;
 3. create a session and complete a real prompt;
-4. exercise permissions, steering, cancellation, persistence, and replay when supported;
+4. exercise permissions, steering, cancellation, persistence, and replay when
+   supported;
 5. render every custom timeline item on desktop and mobile-width layouts;
-6. reload and remove the plugin while a session is active and confirm the session terminates.
+6. reload and remove the plugin while a session is active and confirm the
+   session terminates.
 
-Follow [Publish a plugin](/docs/plugins/publishing) to distribute the provider through npm or Git.
-Keep agent compatibility and releases in the plugin project.
+Follow [Publish a plugin](/docs/plugins/publishing) to distribute the provider
+through npm or Git. Keep agent compatibility and releases in the plugin project.
 
-See the [plugin reference](/docs/plugins/reference#providers) for the exact runtime and SVG
-rules.
+See the [plugin reference](/docs/plugins/reference#providers) for the exact
+runtime and SVG rules.
