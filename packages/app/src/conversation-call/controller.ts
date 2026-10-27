@@ -1,4 +1,5 @@
 import type { ConversationCallEvent } from "@getpaseo/protocol/messages";
+import type { CallAudioOutput } from "./native-audio";
 
 export interface CallTarget {
   serverId: string;
@@ -9,13 +10,16 @@ export interface CallMedia {
   offer(): Promise<string>;
   answer(sdp: string): Promise<void>;
   mute(muted: boolean): void;
+  setSpeaker?(enabled: boolean): Promise<void>;
   play(): Promise<boolean>;
   stop(): void;
 }
 export interface MediaEvents {
+  ended?(): void;
   connected(): void;
   failed(message: string): void;
   playbackBlocked(blocked: boolean): void;
+  audioOutput?(state: CallAudioOutput): void;
 }
 export interface CallSignaling {
   supported: boolean;
@@ -24,8 +28,12 @@ export interface CallSignaling {
   subscribe(listener: (callId: string, event: ConversationCallEvent) => void): () => void;
   disconnected(listener: () => void): () => void;
 }
+export interface CallIdentity {
+  callId: string;
+  target: CallTarget;
+}
 interface Dependencies {
-  createMedia(events: MediaEvents): CallMedia;
+  createMedia(events: MediaEvents, identity: CallIdentity): CallMedia;
   newId(): string;
 }
 export type CallSnapshot =
@@ -36,6 +44,7 @@ export type CallSnapshot =
       muted: boolean;
       minimized: boolean;
       playbackBlocked: boolean;
+      audioOutput: CallAudioOutput | null;
       transcript: string;
       delegation: string;
       error: string;
@@ -78,6 +87,7 @@ export class ConversationCallController {
       muted: false,
       minimized: false,
       playbackBlocked: false,
+      audioOutput: null,
       transcript: "",
       delegation: "",
       error: "",
@@ -90,27 +100,37 @@ export class ConversationCallController {
       });
       return;
     }
-    const media = this.dependencies.createMedia({
-      connected: () => {
-        if (this.active?.media === media) this.update({ phase: "connected" });
+    const callId = this.dependencies.newId();
+    const media = this.dependencies.createMedia(
+      {
+        ended: () => {
+          if (this.active?.media === media) this.end();
+        },
+        connected: () => {
+          if (this.active?.media === media) this.update({ phase: "connected" });
+        },
+        failed: (message) => {
+          if (this.active?.media === media) this.fail(message);
+        },
+        playbackBlocked: (blocked) => {
+          if (this.active?.media === media) this.update({ playbackBlocked: blocked });
+        },
+        audioOutput: (audioOutput) => {
+          if (this.active?.media === media) this.update({ audioOutput });
+        },
       },
-      failed: (message) => {
-        if (this.active?.media === media) this.fail(message);
-      },
-      playbackBlocked: (blocked) => {
-        if (this.active?.media === media) this.update({ playbackBlocked: blocked });
-      },
-    });
+      { callId, target: capturedTarget },
+    );
     const call: ActiveCall = {
-      callId: this.dependencies.newId(),
+      callId,
       signaling,
       media,
       requested: false,
       unsubscribe: () => {},
     };
     this.active = call;
-    const unsubscribe = signaling.subscribe((callId, event) => {
-      if (this.active !== call || callId !== call.callId) return;
+    const unsubscribe = signaling.subscribe((eventCallId, event) => {
+      if (this.active !== call || eventCallId !== call.callId) return;
       if (event.kind === "transcript") this.update({ transcript: event.text });
       if (event.kind === "delegation") this.update({ delegation: event.text });
       if (event.kind === "error") this.fail(event.message);
@@ -152,6 +172,14 @@ export class ConversationCallController {
     this.update({ muted });
   }
 
+  async toggleSpeaker() {
+    const call = this.active;
+    if (!call || this.snapshot.phase === "idle") return;
+    const output = this.snapshot.audioOutput;
+    if (!output?.canToggle || output.pending) return;
+    await call.media.setSpeaker?.(output.route !== "speaker");
+  }
+
   async play() {
     const call = this.active;
     if (!call) return;
@@ -183,6 +211,7 @@ export class ConversationCallController {
     const call = this.active;
     this.active = null;
     if (!call) return;
+    this.update({ audioOutput: null });
     call.unsubscribe();
     call.media.stop();
     if (call.requested) void call.signaling.end(call.callId).catch(() => {});

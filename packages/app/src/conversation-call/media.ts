@@ -1,5 +1,7 @@
 import type { CallMedia, MediaEvents } from "./controller";
 
+export const supportsCalls = false;
+
 export function createCallMedia(_events: MediaEvents): CallMedia {
   return {
     async offer() {

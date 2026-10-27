@@ -8,10 +8,20 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { Text, View } from "react-native";
+import { Platform, Text, View, type LayoutChangeEvent } from "react-native";
 import { useReducedMotion } from "react-native-reanimated";
+import { SafeAreaInsetsContext, useSafeAreaInsets } from "react-native-safe-area-context";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { Phone, PhoneOutgoing, Mic, MicOff, PhoneOff } from "lucide-react-native";
+import {
+  Phone,
+  PhoneOutgoing,
+  Mic,
+  MicOff,
+  PhoneOff,
+  Volume2,
+  Smartphone,
+  Headphones,
+} from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { ToolbarButton } from "@/components/ui/pane-content-toolbar";
@@ -19,6 +29,7 @@ import { CONTROL_HEIGHTS } from "@/components/ui/control-geometry";
 import { Alert } from "@/components/ui/alert";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { isWeb } from "@/constants/platform";
+import { BORDER_WIDTH, SPACING } from "@/styles/theme";
 import { useSessionStore } from "@/stores/session-store";
 import { navigateToAgent } from "@/utils/navigate-to-agent";
 import {
@@ -34,9 +45,10 @@ import {
   type CallTarget,
   type CallSnapshot,
 } from "./controller";
-import { createCallMedia } from "./media";
+import { createCallMedia, supportsCalls } from "./media";
 
 const CallContext = createContext<ConversationCallController | null>(null);
+const NATIVE_STRIP_HEIGHT = CONTROL_HEIGHTS.compact + 2 * SPACING[1] + BORDER_WIDTH[1];
 const ThemedMic = withUnistyles(Mic, (theme) => ({
   color: theme.colors.foreground,
   size: theme.iconSize.md,
@@ -58,6 +70,19 @@ const ThemedLivePhone = withUnistyles(Phone, (theme) => ({
   size: theme.iconSize.md,
 }));
 const ThemedConnectingPhone = withUnistyles(PhoneOutgoing, (theme) => ({
+  color: theme.colors.foreground,
+  size: theme.iconSize.md,
+}));
+
+const ThemedSpeaker = withUnistyles(Volume2, (theme) => ({
+  color: theme.colors.foreground,
+  size: theme.iconSize.md,
+}));
+const ThemedHandset = withUnistyles(Smartphone, (theme) => ({
+  color: theme.colors.foreground,
+  size: theme.iconSize.md,
+}));
+const ThemedHeadphones = withUnistyles(Headphones, (theme) => ({
   color: theme.colors.foreground,
   size: theme.iconSize.md,
 }));
@@ -114,13 +139,60 @@ export function ConversationCallProvider({ children }: { children: ReactNode }) 
         newId: () => crypto.randomUUID(),
       }),
   );
+  const snapshot = useSyncExternalStore(
+    controller.subscribe,
+    controller.getSnapshot,
+    controller.getSnapshot,
+  );
+  const insets = useSafeAreaInsets();
+  const target = snapshot.phase === "idle" ? null : snapshot.target;
+  const [hostMeasurement, setHostMeasurement] = useState<{
+    target: CallTarget | null;
+    height: number;
+  }>({ target: null, height: NATIVE_STRIP_HEIGHT });
+  const hostHeight =
+    hostMeasurement.target === target ? hostMeasurement.height : NATIVE_STRIP_HEIGHT;
+  const measureHost = useCallback(
+    (event: LayoutChangeEvent) => {
+      const current = controller.getSnapshot();
+      if (current.phase === "idle" || current.target !== target) return;
+      setHostMeasurement({
+        target,
+        height: Math.max(NATIVE_STRIP_HEIGHT, event.nativeEvent.layout.height),
+      });
+    },
+    [controller, target],
+  );
+  const ownsTopInset =
+    !isWeb &&
+    supportsCalls &&
+    snapshot.phase !== "idle" &&
+    !(Platform.OS === "android" && snapshot.phase === "ended");
+  const contentInsets = useMemo(
+    () => (ownsTopInset ? { ...insets, top: insets.top + hostHeight } : insets),
+    [insets, ownsTopInset, hostHeight],
+  );
   useEffect(() => () => controller.end(), [controller]);
   return (
     <CallContext.Provider value={controller}>
-      {isWeb ? (
+      {supportsCalls ? (
         <View style={styles.root}>
-          <ConversationCallHost />
-          <View style={styles.root}>{children}</View>
+          {ownsTopInset ? (
+            <View
+              testID="conversation-call-safe-area"
+              style={[
+                styles.safeArea,
+                { paddingTop: insets.top, paddingLeft: insets.left, paddingRight: insets.right },
+              ]}
+            >
+              <ConversationCallHost onLayout={measureHost} />
+            </View>
+          ) : (
+            <ConversationCallHost />
+          )}
+          <SafeAreaInsetsContext.Provider value={contentInsets}>
+            <View style={styles.root}>{children}</View>
+          </SafeAreaInsetsContext.Provider>
         </View>
       ) : (
         children
@@ -144,14 +216,60 @@ function CallMuteAction() {
       selected={snapshot.muted}
       aria-pressed={snapshot.muted}
       onPress={mute}
-      style={styles.touchTarget}
+      compact={!isWeb}
+      round={!isWeb}
+      hitSlop={8}
+      style={isWeb ? styles.touchTarget : undefined}
     >
       {snapshot.muted ? <ThemedMicOff /> : <ThemedMic />}
     </ToolbarButton>
   );
 }
 
-/** Only the normal active-agent composer supplies this slot; drafts and native keep their controls. */
+function CallSpeakerAction() {
+  const controller = useCall();
+  const snapshot = useSyncExternalStore(
+    controller.subscribe,
+    controller.getSnapshot,
+    controller.getSnapshot,
+  );
+  const toggle = useCallback(() => {
+    void controller.toggleSpeaker();
+  }, [controller]);
+  // Native calls currently ship on Android only. Web owns its browser-selected output.
+  if (isWeb || snapshot.phase === "idle") return null;
+  const output = snapshot.audioOutput;
+  const speaker = output?.route === "speaker";
+  const headset = output?.route === "headset";
+  let label = "Audio output unavailable";
+  let icon = <ThemedHandset />;
+  if (output?.route === "earpiece") label = "Speaker off. Switch to speaker";
+  if (speaker) {
+    label = "Speaker on. Switch to earpiece";
+    icon = <ThemedSpeaker />;
+  }
+  if (headset) {
+    label = "Headset audio connected";
+    icon = <ThemedHeadphones />;
+  }
+  return (
+    <ToolbarButton
+      label={label}
+      testID="conversation-call-speaker"
+      onPress={toggle}
+      selected={speaker}
+      aria-pressed={speaker}
+      disabled={!output?.canToggle || output.pending}
+      compact
+      round
+      hitSlop={8}
+    >
+      {icon}
+    </ToolbarButton>
+  );
+}
+
+/** Only the normal active-agent composer supplies this slot; drafts keep their controls. */
 export function ConversationCallAction({
   serverId,
   agentId,
@@ -190,7 +308,7 @@ export function ConversationCallAction({
     const target: CallTarget = { serverId, agentId, label: title || t("agentList.fallbackTitle") };
     void controller.start(target, signaling(client));
   }, [agentId, client, controller, isTarget, serverId, title, t]);
-  if (!isWeb || provider !== "pi") return null;
+  if (!supportsCalls || provider !== "pi") return null;
   let label = "Call this Pi agent with GPT-Live";
   let icon = phoneIcon;
   if (isTarget) {
@@ -210,6 +328,7 @@ export function ConversationCallAction({
         onPress={toggle}
         disabled={disabled}
         round
+        hitSlop={8}
         style={styles.composerAction}
       >
         {icon}
@@ -242,7 +361,7 @@ function CallIdentity({ snapshot }: { snapshot: CallSnapshot }) {
   );
 }
 
-function ConversationCallHost() {
+function ConversationCallHost({ onLayout }: { onLayout?: (event: LayoutChangeEvent) => void }) {
   const controller = useCall();
   const snapshot = useSyncExternalStore(
     controller.subscribe,
@@ -266,10 +385,15 @@ function ConversationCallHost() {
       navigateToAgent({ serverId: state.target.serverId, agentId: state.target.agentId });
   }, [controller]);
   const identity = useMemo(() => <CallIdentity snapshot={snapshot} />, [snapshot]);
-  if (!isWeb || snapshot.phase === "idle" || snapshot.phase === "ended") return null;
+  if (
+    !supportsCalls ||
+    snapshot.phase === "idle" ||
+    ((isWeb || Platform.OS === "android") && snapshot.phase === "ended")
+  )
+    return null;
   const active = snapshot.phase === "connecting" || snapshot.phase === "connected";
   return (
-    <View style={styles.host} testID="conversation-call-host">
+    <View style={styles.host} testID="conversation-call-host" onLayout={onLayout}>
       <View style={styles.panel}>
         {active ? (
           <View style={styles.row}>
@@ -277,15 +401,41 @@ function ConversationCallHost() {
               accessibilityLabel={`Return to call with ${snapshot.target.label}`}
               onPress={returnToCall}
               variant="ghost"
+              size={isWeb ? "md" : "sm"}
               style={styles.identity}
               leftIcon={snapshot.phase === "connecting" ? connectingPhoneIcon : livePhoneIcon}
               trailing={identity}
             />
+            <CallSpeakerAction />
             <CallMuteAction />
-            <ToolbarButton label="End call" onPress={end} style={styles.touchTarget}>
+            <ToolbarButton
+              label="End call"
+              onPress={end}
+              compact={!isWeb}
+              round={!isWeb}
+              hitSlop={8}
+              style={isWeb ? styles.touchTarget : undefined}
+            >
               <ThemedPhoneOff />
             </ToolbarButton>
           </View>
+        ) : null}
+        {!isWeb && active && snapshot.audioOutput?.error ? (
+          <Text accessibilityRole="alert" style={styles.outputError}>
+            {snapshot.audioOutput.error}
+          </Text>
+        ) : null}
+        {snapshot.phase === "ended" ? (
+          <Alert title="Call ended" description="Pi work continues independently.">
+            <View style={styles.controls}>
+              <Button onPress={retry} variant="outline">
+                Call again
+              </Button>
+              <Button onPress={dismiss} variant="ghost">
+                Dismiss call
+              </Button>
+            </View>
+          </Alert>
         ) : null}
         {snapshot.error ? (
           <Alert
@@ -311,6 +461,16 @@ function ConversationCallHost() {
 
 const styles = StyleSheet.create((theme) => ({
   root: { flex: 1 },
+  // Native-stack screen sizes update after native layout. Keep its viewport unchanged when
+  // the strip appears; the descendant top inset reserves the strip instead of a flex sibling.
+  safeArea: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 1,
+    backgroundColor: theme.colors.surface3,
+  },
   host: {
     backgroundColor: theme.colors.surface3,
     borderBottomWidth: 1,
@@ -323,6 +483,8 @@ const styles = StyleSheet.create((theme) => ({
   controls: { flexDirection: "row", alignItems: "center", gap: theme.spacing[1] },
   identity: { flex: 1, minWidth: 0, justifyContent: "flex-start" },
   identityText: { flexShrink: 1, fontSize: theme.fontSize.base, color: theme.colors.foreground },
+  outputError: { fontSize: theme.fontSize.sm, color: theme.colors.statusDanger },
+  // Match the neighboring voice/composer controls; hitSlop grows touch area without spacing.
   connectingIcon: {
     width: theme.iconSize.md,
     height: theme.iconSize.md,

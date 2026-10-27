@@ -1,5 +1,5 @@
 import { useCallback, useState, type ReactNode } from "react";
-import { View, type LayoutChangeEvent } from "react-native";
+import { Platform, View, type LayoutChangeEvent } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 import { EdgeFade } from "@/components/ui/edge-fade";
 
@@ -37,7 +37,11 @@ export function FloatingHeaderLayout({ header, floating, children }: FloatingHea
             backdrop="surfaceWorkspace"
             style={styles.fade}
           />
-          <View pointerEvents="box-none" onLayout={handleHeaderLayout}>
+          <View
+            pointerEvents="box-none"
+            onLayout={handleHeaderLayout}
+            style={Platform.OS === "android" ? styles.headerSurface : undefined}
+          >
             {header}
           </View>
         </View>
@@ -46,7 +50,7 @@ export function FloatingHeaderLayout({ header, floating, children }: FloatingHea
   );
 }
 
-const styles = StyleSheet.create({
+const styles = StyleSheet.create((theme) => ({
   root: {
     flex: 1,
     minHeight: 0,
@@ -63,6 +67,11 @@ const styles = StyleSheet.create({
     // The fade's tail lives inside the overlay so Android does not clip it.
     paddingBottom: FADE_OVERHANG,
   },
+  // SVG fade opacity is not a reliable contrast owner on Android. Paint only the actual
+  // header bounds; the existing overhang still dissolves history below the controls.
+  headerSurface: {
+    backgroundColor: theme.colors.surfaceWorkspace,
+  },
   fade: {
     position: "absolute",
     top: 0,
@@ -70,4 +79,4 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
   },
-});
+}));

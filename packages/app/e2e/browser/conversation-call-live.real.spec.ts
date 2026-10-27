@@ -8,9 +8,8 @@ import { getServerId } from "../support/helpers/server-id";
 import { openSettings } from "../support/helpers/app";
 
 const codexName = process.platform === "win32" ? "codex.exe" : "codex";
-const candidates = (process.env.PATH ?? "")
-  .split(path.delimiter)
-  .map((entry) => path.join(entry, codexName));
+const executablePath: string = process.env.PATH ?? "";
+const candidates = executablePath.split(path.delimiter).map((entry) => path.join(entry, codexName));
 const codexBinary = process.env.CALL_CODEX_BINARY ?? candidates.find((entry) => existsSync(entry));
 const fixture =
   process.env.CALL_AUDIO_FIXTURE ?? path.join(tmpdir(), "paseo-conversation-call.wav");

@@ -1,0 +1,190 @@
+import type { CallMedia, MediaEvents } from "./controller";
+import { CallReadiness } from "./readiness";
+
+interface ProviderChannel {
+  addEventListener(name: "open" | "close" | "error", listener: () => void): void;
+  addEventListener(name: "message", listener: (event: { data: unknown }) => void): void;
+}
+
+interface Description {
+  type: string | null;
+  sdp: string;
+}
+export interface NativePeer {
+  connectionState: string;
+  iceGatheringState: string;
+  localDescription: Description | null;
+  createDataChannel(label: string): ProviderChannel;
+  createOffer(): Promise<Description>;
+  setLocalDescription(description: Description): Promise<void>;
+  setRemoteDescription(description: Description): Promise<void>;
+  addEventListener(
+    name: "connectionstatechange" | "icegatheringstatechange",
+    listener: () => void,
+  ): void;
+  removeEventListener(
+    name: "connectionstatechange" | "icegatheringstatechange",
+    listener: () => void,
+  ): void;
+  close(): void;
+}
+export interface NativeMicrophone {
+  tracks: Array<{ enabled: boolean; stop(): void }>;
+  release(): void;
+  openPeer(): NativePeer;
+}
+export interface NativeMediaDependencies {
+  background?: { start(): Promise<void>; stop(): void };
+  reserveMicrophone(): () => void;
+  schedule(callback: () => void, ms: number): () => void;
+  requestPermission(): Promise<boolean>;
+  acquire(): Promise<NativeMicrophone>;
+  readyCue?(): void;
+  startAudio(): void;
+  stopAudio(): void;
+  setSpeaker?(enabled: boolean): Promise<void>;
+}
+
+/** The hardware boundary is injected so cancellation can be tested without a phone. */
+export class NativeCallMedia implements CallMedia {
+  private stopped = false;
+  private ready = false;
+  private muted = false;
+  private readonly readiness: CallReadiness;
+  private routed = false;
+  private cancelGather = () => {};
+  private cancelDeadline = () => {};
+  private releaseMicrophone = () => {};
+  private microphone: NativeMicrophone | null = null;
+  private peer: NativePeer | null = null;
+  private readonly connectionChanged = () => {
+    if (this.stopped) return;
+    if (this.peer?.connectionState === "connected") {
+      this.readiness.peerConnected();
+    }
+    if (this.peer?.connectionState === "disconnected" || this.peer?.connectionState === "failed") {
+      this.readiness.stop();
+      this.events.failed(
+        "Audio connection lost. Pi may still be working; check its status before resending.",
+      );
+    }
+  };
+  constructor(
+    private readonly dependencies: NativeMediaDependencies,
+    private readonly events: MediaEvents,
+  ) {
+    this.readiness = new CallReadiness(
+      () => {
+        if (this.stopped) return;
+        this.ready = true;
+        this.cancelDeadline();
+        this.mute(this.muted);
+        this.events.connected();
+        if (!this.stopped) {
+          try {
+            this.dependencies.readyCue?.();
+          } catch {
+            /* Visual readiness is sufficient if audio is blocked. */
+          }
+        }
+      },
+      (message) => this.events.failed(message),
+    );
+    this.cancelDeadline = this.dependencies.schedule(() => {
+      if (this.stopped) return;
+      this.readiness.stop();
+      this.events.failed("Call connection timed out. Check the host and try again.");
+    }, 95000);
+  }
+  async offer(): Promise<string> {
+    if (this.stopped) throw new Error("Call ended");
+    this.releaseMicrophone = this.dependencies.reserveMicrophone();
+    if (!(await this.dependencies.requestPermission())) {
+      throw new Error(
+        "Microphone permission denied. Allow microphone access in Android settings, then try again.",
+      );
+    }
+    if (this.stopped) throw new Error("Call ended");
+    if (this.dependencies.background) {
+      await this.dependencies.background.start();
+      if (this.stopped) throw new Error("Call ended");
+    }
+    this.routed = true;
+    this.dependencies.startAudio();
+    const microphone = await this.dependencies.acquire();
+    if (this.stopped) {
+      microphone.tracks.forEach((track) => track.stop());
+      microphone.release();
+      throw new Error("Call ended");
+    }
+    this.microphone = microphone;
+    this.mute(this.muted);
+    const peer = this.microphone.openPeer();
+    this.peer = peer;
+    const channel = peer.createDataChannel("realtime-events");
+    channel.addEventListener("open", () => this.readiness.channelOpened());
+    channel.addEventListener("message", (event) => this.readiness.message(event.data));
+    channel.addEventListener("close", () => this.readiness.channelClosed());
+    channel.addEventListener("error", () => this.readiness.channelError());
+    peer.addEventListener("connectionstatechange", this.connectionChanged);
+    await peer.setLocalDescription(await peer.createOffer());
+    await this.gather(peer);
+    if (this.stopped) throw new Error("Call ended");
+    const sdp = peer.localDescription?.sdp;
+    if (!sdp) throw new Error("No audio offer available. Try again.");
+    return sdp;
+  }
+  private gather(peer: NativePeer): Promise<void> {
+    if (this.stopped || peer.iceGatheringState === "complete") return Promise.resolve();
+    return new Promise((resolve) => {
+      let finished = false;
+      const cancelTimeout = this.dependencies.schedule(done, 8000);
+      const check = () => {
+        if (peer.iceGatheringState === "complete") done();
+      };
+      function done() {
+        if (finished) return;
+        finished = true;
+        cancelTimeout();
+        peer.removeEventListener("icegatheringstatechange", check);
+        // oxlint-disable-next-line promise/no-multiple-resolved
+        resolve();
+      }
+      this.cancelGather = done;
+      peer.addEventListener("icegatheringstatechange", check);
+      check();
+    });
+  }
+  async answer(sdp: string) {
+    if (!this.stopped) await this.peer?.setRemoteDescription({ type: "answer", sdp });
+  }
+  mute(muted: boolean) {
+    this.muted = muted;
+    this.microphone?.tracks.forEach((track) => {
+      track.enabled = this.ready && !muted;
+    });
+  }
+  async play() {
+    return true;
+  }
+  async setSpeaker(enabled: boolean) {
+    if (!this.stopped && this.routed) await this.dependencies.setSpeaker?.(enabled);
+  }
+  stop() {
+    if (this.stopped) return;
+    this.stopped = true;
+    this.readiness.stop();
+    this.cancelGather();
+    this.cancelDeadline();
+    this.peer?.removeEventListener("connectionstatechange", this.connectionChanged);
+    this.peer?.close();
+    this.peer = null;
+    this.microphone?.tracks.forEach((track) => track.stop());
+    this.microphone?.release();
+    this.microphone = null;
+    if (this.routed) this.dependencies.stopAudio();
+    this.routed = false;
+    this.dependencies.background?.stop();
+    this.releaseMicrophone();
+  }
+}

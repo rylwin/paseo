@@ -3,6 +3,8 @@ import type { CallMedia, MediaEvents } from "./controller";
 import { CallReadiness } from "./readiness";
 import { createReadyCue } from "./ready-cue.web";
 
+export const supportsCalls = true;
+
 export class BrowserCallMedia implements CallMedia {
   private stopped = false;
   private ready = false;
