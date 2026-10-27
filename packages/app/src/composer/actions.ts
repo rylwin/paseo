@@ -19,6 +19,28 @@ import { createUserMessage, generateMessageId, type UserMessageItem } from "@/ty
 import type { MessageSubmissionRejectionOutcome } from "@/composer/submission/model";
 import type { PickedImageAttachmentInput } from "@/hooks/image-attachment-picker";
 import { i18n } from "@/i18n/i18next";
+import type { VoiceRuntime, VoiceRuntimeSnapshot } from "@/voice/voice-runtime";
+
+export async function startComposerVoice(input: {
+  voice:
+    | (Pick<VoiceRuntime, "startVoice" | "isVoiceModeForAgent"> &
+        Pick<VoiceRuntimeSnapshot, "isVoiceSwitching">)
+    | null;
+  isConnected: boolean;
+  hasAgent: boolean;
+  serverId: string;
+  agentId: string;
+  startDraftVoice?: () => Promise<void>;
+}): Promise<void> {
+  const { voice, isConnected, hasAgent, serverId, agentId, startDraftVoice } = input;
+  if (!voice || !isConnected || voice.isVoiceSwitching) return;
+  if (voice.isVoiceModeForAgent(serverId, agentId)) return;
+  if (!hasAgent) {
+    await startDraftVoice?.();
+    return;
+  }
+  await voice.startVoice(serverId, agentId);
+}
 
 export interface QueuedComposerMessage {
   id: string;

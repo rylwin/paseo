@@ -77,6 +77,7 @@ import { encodeImages } from "@/utils/encode-images";
 import { focusWithRetries } from "@/utils/web-focus";
 import {
   cancelComposerAgent,
+  startComposerVoice,
   dispatchComposerAgentMessage,
   editQueuedComposerMessage,
   findForgeItemByOption,
@@ -496,6 +497,7 @@ function resolveErrorMessage(error: unknown): string | null {
 }
 
 interface AttemptStartRealtimeVoiceArgs {
+  startDraftVoice?: () => Promise<void>;
   voice: ReturnType<typeof useVoiceOptional>;
   isConnected: boolean;
   hasAgent: boolean;
@@ -504,12 +506,9 @@ interface AttemptStartRealtimeVoiceArgs {
   toastErrorRef: { current: (message: string) => void };
 }
 
-function attemptStartRealtimeVoice(args: AttemptStartRealtimeVoiceArgs): void {
-  const { voice, isConnected, hasAgent, serverId, agentId, toastErrorRef } = args;
-  if (!voice || !isConnected || !hasAgent) return;
-  if (voice.isVoiceSwitching) return;
-  if (voice.isVoiceModeForAgent(serverId, agentId)) return;
-  void voice.startVoice(serverId, agentId).catch((error) => {
+function attemptStartRealtimeVoice(args: AttemptStartRealtimeVoiceArgs): Promise<void> {
+  const { toastErrorRef } = args;
+  return startComposerVoice(args).catch((error) => {
     console.error("[Composer] Failed to start voice mode", error);
     const message = resolveErrorMessage(error);
     if (message && message.trim().length > 0) {
@@ -925,6 +924,8 @@ interface ComposerProps {
   workspaceId?: string | null;
   isPaneFocused: boolean;
   onSubmitMessage?: (payload: MessagePayload) => Promise<void>;
+  /** Starts voice for a draft that does not have an agent yet. */
+  onStartVoice?: () => Promise<void>;
   onClientSlashCommand?: (command: ClientSlashCommand) => Promise<void>;
   /** When true, the submit button is enabled even without text or images (e.g. external attachment selected). */
   hasExternalContent?: boolean;
@@ -1247,6 +1248,7 @@ function ComposerContentImpl({
   serverId,
   workspaceId,
   onSubmitMessage,
+  onStartVoice,
   onClientSlashCommand,
   hasExternalContent = false,
   allowEmptySubmit = false,
@@ -1928,15 +1930,16 @@ function ComposerContentImpl({
   const isVoiceModeForAgent = resolveIsVoiceModeForAgent(voice, serverId, agentId);
 
   const handleToggleRealtimeVoice = useCallback(() => {
-    attemptStartRealtimeVoice({
+    return attemptStartRealtimeVoice({
       voice,
       isConnected,
       hasAgent,
       serverId,
       agentId,
+      startDraftVoice: onStartVoice,
       toastErrorRef,
     });
-  }, [agentId, hasAgent, isConnected, serverId, voice]);
+  }, [agentId, hasAgent, isConnected, onStartVoice, serverId, voice]);
 
   const handleEditQueuedMessage = useCallback(
     (id: string) => {
@@ -2057,7 +2060,7 @@ function ComposerContentImpl({
       <ComposerRightControlsSlot
         conversationCallAction={conversationCallAction}
         isVoiceModeForAgent={isVoiceModeForAgent}
-        hasAgent={hasAgent}
+        hasAgent={hasAgent || Boolean(onStartVoice)}
         isAgentRunning={isAgentRunning}
         hasSendableContent={hasSendableContent}
         isCompact={isCompactLayout}
@@ -2073,6 +2076,7 @@ function ComposerContentImpl({
     ),
     [
       conversationCallAction,
+      onStartVoice,
       buttonIconSize,
       handleToggleRealtimeVoice,
       hasAgent,
@@ -2500,7 +2504,8 @@ function ComposerContentImpl({
                   rightContent={rightContent}
                   activeActionContent={activeActionContent}
                   voiceServerId={serverId}
-                  voiceAgentId={agentId}
+                  voiceAgentId={hasAgent || onStartVoice ? agentId : undefined}
+                  onStartVoice={handleToggleRealtimeVoice}
                   isAgentRunning={isAgentRunning}
                   defaultSendBehavior={activeSendBehavior}
                   sendShortcut={appSettings.sendShortcut}

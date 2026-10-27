@@ -61,6 +61,14 @@ export interface VoiceSessionAdapter {
   setAssistantAudioPlaying(isPlaying: boolean): void;
 }
 
+export interface VoiceDraftSession {
+  /** Creates the target without sending an initial message. */
+  createAgent(): Promise<string>;
+  /** Retains the chat on first input, or when a lost connection makes delivery uncertain. */
+  onCommit(): void;
+  discardAgent(agentId: string): Promise<void>;
+}
+
 export interface VoiceRuntimeDeps {
   engine: AudioEngine;
   getServerInfo(serverId: string): DaemonServerInfo | null;
@@ -171,7 +179,7 @@ export interface VoiceRuntime {
   handleCapturePcm(chunk: Uint8Array): void;
   handleCaptureVolume(level: number): void;
   handleAudioOutput(serverId: string, payload: AudioOutputPayload): void;
-  startVoice(serverId: string, agentId: string): Promise<void>;
+  startVoice(serverId: string, agentId: string, draft?: VoiceDraftSession): Promise<void>;
   stopVoice(): Promise<void>;
   destroy(): Promise<void>;
   toggleMute(): void;
@@ -207,6 +215,22 @@ export function createVoiceRuntime(deps: VoiceRuntimeDeps): VoiceRuntime {
     processing: false,
     generation: 0,
   };
+  let draftSession: { options: VoiceDraftSession; agentId: string; draftId: string } | null = null;
+
+  function commitDraftSession(): void {
+    const draft = draftSession;
+    draftSession = null;
+    draft?.options.onCommit();
+  }
+
+  async function discardDraftSession(): Promise<void> {
+    const draft = draftSession;
+    draftSession = null;
+    if (draft) {
+      await draft.options.discardAgent(draft.agentId);
+    }
+  }
+
   const cue: CueState = {
     controller: null,
     timeout: null,
@@ -552,6 +576,7 @@ export function createVoiceRuntime(deps: VoiceRuntimeDeps): VoiceRuntime {
     await deps.deactivateKeepAwake(KEEP_AWAKE_TAG).catch(() => undefined);
     getActiveSession()?.adapter.setAssistantAudioPlaying(false);
     resetToDisabledState();
+    await discardDraftSession();
   }
 
   async function resyncVoiceMode(serverId: string): Promise<void> {
@@ -610,7 +635,11 @@ export function createVoiceRuntime(deps: VoiceRuntimeDeps): VoiceRuntime {
         const activeServerId = state.snapshot.activeServerId;
         sessions.delete(adapter.serverId);
         if (activeServerId === adapter.serverId) {
-          void performLocalStop();
+          if (state.snapshot.isVoiceMode) commitDraftSession();
+          state.generation++;
+          void performLocalStop().catch((error) => {
+            console.error("[VoiceRuntime] Failed to clean up removed host:", error);
+          });
         }
       };
     },
@@ -625,6 +654,9 @@ export function createVoiceRuntime(deps: VoiceRuntimeDeps): VoiceRuntime {
         return;
       }
       if (!connected) {
+        // A transcript may already have reached the daemon without reaching us.
+        // Retain the agent rather than risk deleting submitted work.
+        if (state.snapshot.isVoiceMode) commitDraftSession();
         state.transportReady = false;
         return;
       }
@@ -703,7 +735,8 @@ export function createVoiceRuntime(deps: VoiceRuntimeDeps): VoiceRuntime {
       void processPlaybackQueue(serverId);
     },
 
-    async startVoice(serverId, agentId) {
+    async startVoice(serverId, agentId, draft) {
+      if (state.snapshot.isVoiceSwitching) return;
       const session = sessions.get(serverId);
       if (!session) {
         throw new Error(`Voice runtime is not ready for host ${serverId}`);
@@ -746,6 +779,7 @@ export function createVoiceRuntime(deps: VoiceRuntimeDeps): VoiceRuntime {
             previousSession.adapter.setAssistantAudioPlaying(false);
             await previousSession.adapter.setVoiceMode(false);
           }
+          await discardDraftSession();
         }
 
         await deps.activateKeepAwake(KEEP_AWAKE_TAG).catch((error) => {
@@ -753,8 +787,25 @@ export function createVoiceRuntime(deps: VoiceRuntimeDeps): VoiceRuntime {
         });
 
         await deps.engine.initialize();
+        if (state.generation !== generation) return;
+        if (draft) {
+          const draftId = agentId;
+          agentId = await draft.createAgent();
+          if (state.generation !== generation) {
+            await draft.discardAgent(agentId);
+            return;
+          }
+          draftSession = { options: draft, agentId, draftId };
+          patchSnapshot((prev) => ({ ...prev, activeAgentId: agentId }));
+        }
         await session.adapter.setVoiceMode(true, agentId);
         enabledCurrentVoiceMode = true;
+        if (state.generation !== generation) {
+          if (state.snapshot.phase === "disabled") {
+            await session.adapter.setVoiceMode(false);
+          }
+          return;
+        }
         await deps.engine.startCapture();
         if (state.generation !== generation) {
           return;
@@ -772,6 +823,7 @@ export function createVoiceRuntime(deps: VoiceRuntimeDeps): VoiceRuntime {
           isMuted: deps.engine.isMuted(),
         }));
       } catch (error) {
+        if (state.generation !== generation) throw error;
         if (enabledCurrentVoiceMode) {
           await session.adapter.setVoiceMode(false).catch(() => undefined);
         }
@@ -803,6 +855,7 @@ export function createVoiceRuntime(deps: VoiceRuntimeDeps): VoiceRuntime {
         }
         await deps.engine.stopCapture();
         await deps.deactivateKeepAwake(KEEP_AWAKE_TAG).catch(() => undefined);
+        await discardDraftSession();
       } finally {
         if (state.generation === generation) {
           resetToDisabledState();
@@ -838,7 +891,7 @@ export function createVoiceRuntime(deps: VoiceRuntimeDeps): VoiceRuntime {
       return (
         state.snapshot.isVoiceMode &&
         state.snapshot.activeServerId === serverId &&
-        state.snapshot.activeAgentId === agentId
+        (state.snapshot.activeAgentId === agentId || draftSession?.draftId === agentId)
       );
     },
 
@@ -886,6 +939,7 @@ export function createVoiceRuntime(deps: VoiceRuntimeDeps): VoiceRuntime {
       }
 
       if (text.trim()) {
+        commitDraftSession();
         state.turnInProgress = true;
         patchSnapshot((prev) => ({ ...prev, phase: "waiting" }));
         reconcileCue();
@@ -933,6 +987,7 @@ export function createVoiceRuntime(deps: VoiceRuntimeDeps): VoiceRuntime {
       }
 
       if (eventType === "turn_started") {
+        commitDraftSession();
         state.turnInProgress = true;
         if (state.snapshot.phase !== "playing") {
           patchSnapshot((prev) => ({ ...prev, phase: "waiting" }));

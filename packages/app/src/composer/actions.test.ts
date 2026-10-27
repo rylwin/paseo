@@ -19,6 +19,7 @@ import {
 } from "@/composer/submission/model";
 import {
   uploadFileAttachments,
+  startComposerVoice,
   cancelComposerAgent,
   dispatchComposerAgentMessage,
   editQueuedComposerMessage,
@@ -38,6 +39,29 @@ import {
   type QueueWriter,
   type QueuedComposerMessage,
 } from "./actions";
+
+describe("starting composer voice", () => {
+  it("starts from a draft without passing its tab ID as an agent ID", async () => {
+    const events: string[] = [];
+    await startComposerVoice({
+      voice: {
+        isVoiceSwitching: false,
+        isVoiceModeForAgent: () => false,
+        startVoice: async (_serverId, agentId) => {
+          events.push(agentId);
+        },
+      },
+      isConnected: true,
+      hasAgent: false,
+      serverId: "host-1",
+      agentId: "draft-tab",
+      startDraftVoice: async () => {
+        events.push("draft voice");
+      },
+    });
+    expect(events).toEqual(["draft voice"]);
+  });
+});
 
 const imageMetadata: AttachmentMetadata = {
   id: "img-1",

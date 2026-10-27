@@ -168,6 +168,7 @@ export interface MessageInputProps {
   activeActionContent?: React.ReactNode;
   voiceServerId?: string;
   voiceAgentId?: string;
+  onStartVoice?: () => Promise<void>;
   /** When true and there's sendable content, calls onQueue instead of onSubmit */
   isAgentRunning?: boolean;
   /** Controls what the default send action (Enter, send button, dictation) does when the agent is
@@ -879,6 +880,7 @@ function PrimaryAction({
   return null;
 }
 interface ToggleRealtimeVoiceContext {
+  onStartVoice?: () => Promise<void>;
   voice:
     | {
         isVoiceSwitching: boolean;
@@ -912,7 +914,10 @@ function toggleRealtimeVoiceImpl(ctx: ToggleRealtimeVoiceContext): void {
     return;
   }
   ctx.exitFullscreen();
-  void ctx.voice.startVoice(ctx.voiceServerId, ctx.voiceAgentId).catch((error) => {
+  const start = ctx.onStartVoice
+    ? ctx.onStartVoice()
+    : ctx.voice.startVoice(ctx.voiceServerId, ctx.voiceAgentId);
+  void start.catch((error) => {
     console.error("[MessageInput] Failed to start realtime voice", error);
     const message = extractErrorMessage(error);
     if (message && message.trim().length > 0) {
@@ -1130,6 +1135,7 @@ interface ResolvedMessageInputProps {
   activeActionContent: React.ReactNode;
   voiceServerId: string | undefined;
   voiceAgentId: string | undefined;
+  onStartVoice: (() => Promise<void>) | undefined;
   isAgentRunning: boolean;
   defaultSendBehavior: "interrupt" | "steer" | "queue";
   sendShortcut: SendShortcut;
@@ -1178,6 +1184,7 @@ function resolveMessageInputProps(props: MessageInputProps): ResolvedMessageInpu
     activeActionContent: props.activeActionContent,
     voiceServerId: props.voiceServerId,
     voiceAgentId: props.voiceAgentId,
+    onStartVoice: props.onStartVoice,
     isAgentRunning: props.isAgentRunning ?? false,
     defaultSendBehavior: props.defaultSendBehavior,
     sendShortcut: props.sendShortcut,
@@ -1256,6 +1263,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
       activeActionContent,
       voiceServerId,
       voiceAgentId,
+      onStartVoice,
       isAgentRunning,
       defaultSendBehavior,
       sendShortcut,
@@ -1640,6 +1648,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
 
     const handleToggleRealtimeVoiceShortcut = useCallback(() => {
       toggleRealtimeVoiceImpl({
+        onStartVoice,
         voice,
         voiceServerId,
         voiceAgentId,
@@ -1654,6 +1663,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
     }, [
       disabled,
       handleStopRealtimeVoice,
+      onStartVoice,
       exitFullscreen,
       isAgentRunning,
       isConnected,

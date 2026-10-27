@@ -108,6 +108,320 @@ describe("voice runtime", () => {
     });
   });
 
+  it("starts an empty draft's agent without a message and discards it after a silent stop", async () => {
+    const { runtime } = createRuntime();
+    runtime.registerSession(createSessionAdapter());
+    const events: string[] = [];
+
+    await runtime.startVoice("server-1", "draft-1", {
+      createAgent: async () => {
+        events.push("created");
+        return "agent-1";
+      },
+      onCommit: () => events.push("committed"),
+      discardAgent: async (agentId) => {
+        events.push(`discarded:${agentId}`);
+      },
+    });
+
+    expect(runtime.getSnapshot()).toMatchObject({
+      phase: "listening",
+      activeAgentId: "agent-1",
+    });
+    expect(runtime.isVoiceModeForAgent("server-1", "draft-1")).toBe(true);
+    runtime.onTranscriptionResult("server-1", "   ");
+    await runtime.stopVoice();
+    expect(events).toEqual(["created", "discarded:agent-1"]);
+  });
+
+  it("keeps a draft on its first spoken input and hands it off only once", async () => {
+    const { runtime } = createRuntime();
+    runtime.registerSession(createSessionAdapter());
+    const events: string[] = [];
+    await runtime.startVoice("server-1", "draft-1", {
+      createAgent: async () => "agent-1",
+      onCommit: () => events.push("committed"),
+      discardAgent: async () => {
+        events.push("discarded");
+      },
+    });
+
+    runtime.onTranscriptionResult("other-server", "unrelated dictation");
+    expect(events).toEqual([]);
+    runtime.onTranscriptionResult("server-1", "hello");
+    runtime.onTranscriptionResult("server-1", "another message");
+    await runtime.stopVoice();
+    expect(events).toEqual(["committed"]);
+  });
+
+  it("discards a temporary agent when microphone capture fails", async () => {
+    const engine = createAudioEngineMock();
+    engine.startCapture = async () => {
+      throw new Error("Microphone denied");
+    };
+    const { runtime } = createRuntime({ engine });
+    runtime.registerSession(createSessionAdapter());
+    const discarded: string[] = [];
+    await expect(
+      runtime.startVoice("server-1", "draft-1", {
+        createAgent: async () => "agent-1",
+        onCommit: () => {},
+        discardAgent: async (agentId) => {
+          discarded.push(agentId);
+        },
+      }),
+    ).rejects.toThrow("Microphone denied");
+    expect(discarded).toEqual(["agent-1"]);
+    expect(runtime.getSnapshot().phase).toBe("disabled");
+  });
+
+  it("does not enable voice if cancelled while its draft agent is being created", async () => {
+    const { runtime } = createRuntime();
+    const adapter = createSessionAdapter();
+    const enabledAgents: string[] = [];
+    adapter.setVoiceMode = async (enabled, agentId) => {
+      if (enabled) enabledAgents.push(agentId!);
+    };
+    runtime.registerSession(adapter);
+    let finishCreate!: (agentId: string) => void;
+    let creationStarted!: () => void;
+    const creating = new Promise<void>((resolve) => {
+      creationStarted = resolve;
+    });
+    const discarded: string[] = [];
+    const start = runtime.startVoice("server-1", "draft-1", {
+      createAgent: () => {
+        creationStarted();
+        return new Promise<string>((resolve) => {
+          finishCreate = resolve;
+        });
+      },
+      onCommit: () => {},
+      discardAgent: async (agentId) => {
+        discarded.push(agentId);
+      },
+    });
+    await creating;
+    await runtime.stopVoice();
+    finishCreate("agent-1");
+    await start;
+    expect(enabledAgents).toEqual([]);
+    expect(discarded).toEqual(["agent-1"]);
+    expect(runtime.getSnapshot().phase).toBe("disabled");
+  });
+
+  it("discards a silent draft when switching voice to another chat", async () => {
+    const { runtime } = createRuntime();
+    runtime.registerSession(createSessionAdapter());
+    const discarded: string[] = [];
+    await runtime.startVoice("server-1", "draft-1", {
+      createAgent: async () => "agent-1",
+      onCommit: () => {},
+      discardAgent: async (agentId) => {
+        discarded.push(agentId);
+      },
+    });
+    await runtime.startVoice("server-1", "agent-2");
+    expect(discarded).toEqual(["agent-1"]);
+    expect(runtime.getSnapshot().activeAgentId).toBe("agent-2");
+    await runtime.stopVoice();
+    expect(discarded).toEqual(["agent-1"]);
+  });
+
+  it("keeps the draft if its agent starts work before the transcript is observed", async () => {
+    const { runtime } = createRuntime();
+    runtime.registerSession(createSessionAdapter());
+    const events: string[] = [];
+    await runtime.startVoice("server-1", "draft-1", {
+      createAgent: async () => "agent-1",
+      onCommit: () => {
+        events.push("committed");
+      },
+      discardAgent: async () => {
+        events.push("discarded");
+      },
+    });
+    runtime.onTurnEvent("server-1", "other-agent", "turn_started");
+    expect(events).toEqual([]);
+    runtime.onTurnEvent("server-1", "agent-1", "turn_started");
+    await runtime.stopVoice();
+    expect(events).toEqual(["committed"]);
+  });
+
+  it("preserves a draft on connection loss because a submitted transcript may not have arrived", async () => {
+    const { runtime } = createRuntime();
+    runtime.registerSession(createSessionAdapter());
+    const events: string[] = [];
+    await runtime.startVoice("server-1", "draft-1", {
+      createAgent: async () => "agent-1",
+      onCommit: () => {
+        events.push("committed");
+      },
+      discardAgent: async () => {
+        events.push("discarded");
+      },
+    });
+    runtime.updateSessionConnection("server-1", false);
+    await runtime.stopVoice();
+    expect(events).toEqual(["committed"]);
+  });
+
+  it("ignores repeated start gestures while a draft is being prepared", async () => {
+    const { runtime } = createRuntime();
+    runtime.registerSession(createSessionAdapter());
+    let finishCreate!: (agentId: string) => void;
+    let creationStarted!: () => void;
+    const creating = new Promise<void>((resolve) => {
+      creationStarted = resolve;
+    });
+    let creates = 0;
+    const draft = {
+      createAgent: async () => {
+        creates++;
+        if (creates > 1) return "duplicate-agent";
+        creationStarted();
+        return new Promise<string>((resolve) => {
+          finishCreate = resolve;
+        });
+      },
+      onCommit: () => {},
+      discardAgent: async () => {},
+    };
+    const start = runtime.startVoice("server-1", "draft-1", draft);
+    await creating;
+    await runtime.startVoice("server-1", "draft-1", draft);
+    finishCreate("agent-1");
+    await start;
+    expect(creates).toBe(1);
+    expect(runtime.getSnapshot().activeAgentId).toBe("agent-1");
+    await runtime.stopVoice();
+  });
+
+  it("does not revive a draft start after its host session is removed", async () => {
+    const { runtime } = createRuntime();
+    const unregister = runtime.registerSession(createSessionAdapter());
+    let finishCreate!: (agentId: string) => void;
+    let creationStarted!: () => void;
+    const creating = new Promise<void>((resolve) => {
+      creationStarted = resolve;
+    });
+    const discarded: string[] = [];
+    const start = runtime.startVoice("server-1", "draft-1", {
+      createAgent: () => {
+        creationStarted();
+        return new Promise<string>((resolve) => {
+          finishCreate = resolve;
+        });
+      },
+      onCommit: () => {},
+      discardAgent: async (agentId) => {
+        discarded.push(agentId);
+      },
+    });
+    await creating;
+    const stopped = new Promise<void>((resolve) => {
+      const unsubscribe = runtime.subscribe(() => {
+        if (runtime.getSnapshot().phase === "disabled") {
+          unsubscribe();
+          resolve();
+        }
+      });
+    });
+    unregister();
+    await stopped;
+    finishCreate("agent-1");
+    await start;
+    expect(runtime.getSnapshot().phase).toBe("disabled");
+    expect(discarded).toEqual(["agent-1"]);
+  });
+
+  it("retains a listening draft when its host is removed without a final transcript", async () => {
+    const { runtime } = createRuntime();
+    const unregister = runtime.registerSession(createSessionAdapter());
+    const events: string[] = [];
+    await runtime.startVoice("server-1", "draft-1", {
+      createAgent: async () => "agent-1",
+      onCommit: () => {
+        events.push("committed");
+      },
+      discardAgent: async () => {
+        events.push("discarded");
+      },
+    });
+    const stopped = new Promise<void>((resolve) => {
+      const unsubscribe = runtime.subscribe(() => {
+        if (runtime.getSnapshot().phase === "disabled") {
+          unsubscribe();
+          resolve();
+        }
+      });
+    });
+    unregister();
+    await stopped;
+    expect(events).toEqual(["committed"]);
+  });
+
+  it("does not restart capture after cancellation during voice activation", async () => {
+    const adapter = createSessionAdapter();
+    let finishEnable!: () => void;
+    let activationStarted!: () => void;
+    const activating = new Promise<void>((resolve) => {
+      activationStarted = resolve;
+    });
+    adapter.setVoiceMode = async (enabled) => {
+      if (!enabled) return;
+      activationStarted();
+      await new Promise<void>((resolve) => {
+        finishEnable = resolve;
+      });
+    };
+    let captures = 0;
+    const engine = createAudioEngineMock();
+    engine.startCapture = async () => {
+      captures++;
+    };
+    const { runtime } = createRuntime({ engine });
+    runtime.registerSession(adapter);
+    const start = runtime.startVoice("server-1", "draft-1", {
+      createAgent: async () => "agent-1",
+      onCommit: () => {},
+      discardAgent: async () => {},
+    });
+    await activating;
+    await runtime.stopVoice();
+    finishEnable();
+    await start;
+    expect(captures).toBe(0);
+    expect(runtime.getSnapshot().phase).toBe("disabled");
+  });
+
+  it("does not tear down a newer chat if a cancelled draft creation later fails", async () => {
+    const { runtime } = createRuntime();
+    runtime.registerSession(createSessionAdapter());
+    let failCreate!: (error: Error) => void;
+    let creationStarted!: () => void;
+    const creating = new Promise<void>((resolve) => {
+      creationStarted = resolve;
+    });
+    const start = runtime.startVoice("server-1", "draft-1", {
+      createAgent: () => {
+        creationStarted();
+        return new Promise<string>((_resolve, reject) => {
+          failCreate = reject;
+        });
+      },
+      onCommit: () => {},
+      discardAgent: async () => {},
+    });
+    await creating;
+    await runtime.stopVoice();
+    await runtime.startVoice("server-1", "agent-2");
+    failCreate(new Error("Creation failed"));
+    await expect(start).rejects.toThrow("Creation failed");
+    expect(runtime.getSnapshot()).toMatchObject({ phase: "listening", activeAgentId: "agent-2" });
+    await runtime.stopVoice();
+  });
+
   it("streams continuous PCM chunks and waits after receiving a transcript", async () => {
     const adapter = createSessionAdapter();
     const { runtime } = createRuntime();

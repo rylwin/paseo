@@ -1,4 +1,25 @@
 import { resolveSubmissionReadiness } from "@/provider-selection/provider-selection";
+import { useDraftStore } from "@/stores/draft-store";
+import { useWorkspaceAttachmentsStore } from "@/attachments/workspace-attachments-store";
+
+export function handoffVoiceDraft(input: {
+  sourceDraftKey: string;
+  targetDraftKey: string;
+  sourceScopeKey: string;
+  targetScopeKey: string;
+}): void {
+  const drafts = useDraftStore.getState();
+  const draft = drafts.getDraftInput(input.sourceDraftKey);
+  if (draft) {
+    drafts.saveDraftInput({ draftKey: input.targetDraftKey, draft });
+    drafts.clearDraftInput({ draftKey: input.sourceDraftKey, lifecycle: "sent" });
+  }
+  const attachments = useWorkspaceAttachmentsStore.getState();
+  for (const attachment of attachments.attachmentsByScope[input.sourceScopeKey] ?? []) {
+    attachments.addWorkspaceAttachment({ scopeKey: input.targetScopeKey, attachment });
+  }
+  attachments.clearWorkspaceAttachments({ scopeKey: input.sourceScopeKey });
+}
 
 export interface WorkspaceDraftAutoSubmitConfig {
   provider: string;

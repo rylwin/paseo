@@ -18,6 +18,7 @@ import {
 import { openAgentRoute, seedMockAgentWorkspace } from "../support/helpers/mock-agent";
 import { createMockIdleAgent, openWorkspaceWithAgents } from "../support/helpers/archive-tab";
 import { seedWorkspace } from "../support/helpers/seed-client";
+import { createAgentTabFromMenu } from "../support/helpers/workspace-tabs";
 import {
   closeMobileAgentSidebar,
   closeMobileExplorer,
@@ -121,6 +122,20 @@ test("focusing the feed preserves assistant text selection and code copy control
   } finally {
     await agent.cleanup();
   }
+});
+
+test("an empty new chat offers voice mode before its first message", async ({
+  page,
+  withWorkspace,
+}, testInfo) => {
+  const workspace = await withWorkspace();
+  await workspace.navigateTo();
+  await createAgentTabFromMenu(page);
+  await expectComposerDraft(page, "");
+  await expect(
+    page.getByRole("button", { name: "Enable Voice mode", exact: true }).filter({ visible: true }),
+  ).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("empty-chat-voice-mode.png") });
 });
 
 test("submitting a message leaves the composer ready for the next message", async ({ page }) => {

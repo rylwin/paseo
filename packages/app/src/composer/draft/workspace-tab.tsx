@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Keyboard, ScrollView, StyleSheet as RNStyleSheet, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { StyleSheet } from "react-native-unistyles";
@@ -28,6 +28,7 @@ import { encodeImages } from "@/utils/encode-images";
 import type { WorkspaceFileOpenRequest } from "@/workspace/file-open";
 import { shouldAutoFocusWorkspaceDraftComposer } from "@/screens/workspace/workspace-draft-pane-focus";
 import {
+  handoffVoiceDraft,
   shouldAllowEmptyDraftText,
   validateDraftSubmission,
 } from "@/composer/draft/workspace-tab-core";
@@ -49,6 +50,8 @@ import {
 } from "@/workspace-tabs/model";
 import { openWorkspaceChanges } from "@/workspace-tabs/open-supporting-view";
 import { useSettings } from "@/hooks/use-settings";
+import { useVoiceOptional } from "@/contexts/voice-context";
+import { createWorkspaceDraftVoiceSession } from "@/composer/draft/create-agent-request";
 
 const EMPTY_PENDING_PERMISSIONS = new Map();
 const DRAFT_CAPABILITIES: AgentCapabilityFlags = {
@@ -292,6 +295,120 @@ function resolveImportPillPress(
   return onOpenImportSheet ?? null;
 }
 
+function useWorkspaceDraftVoice({
+  serverId,
+  workspaceId,
+  tabId,
+  draftId,
+  draftStoreKey,
+  draftAttachmentScopeKey,
+  workspaceAttachmentScopeKey,
+  composerState,
+  autoSubmitConfig,
+  draftWorkingDirectory,
+  isConnected,
+  client,
+  isCreatingAgent,
+  onCreated,
+}: {
+  serverId: string;
+  workspaceId: string;
+  tabId: string;
+  draftId: string;
+  draftStoreKey: string;
+  draftAttachmentScopeKey: string;
+  workspaceAttachmentScopeKey: string;
+  composerState: NonNullable<ReturnType<typeof useAgentInputDraft>["composerState"]>;
+  autoSubmitConfig: AutoSubmitConfig | null;
+  draftWorkingDirectory: string | null;
+  isConnected: boolean;
+  client: DaemonClient | null;
+  isCreatingAgent: boolean;
+  onCreated: (agent: AgentSnapshotPayload) => void;
+}) {
+  const { t } = useTranslation();
+  const voice = useVoiceOptional();
+  const [voiceError, setVoiceError] = useState("");
+  const isVoiceDraftActive = voice?.isVoiceModeForAgent(serverId, tabId) ?? false;
+  const isSubmitting = isCreatingAgent || isVoiceDraftActive || (voice?.isVoiceSwitching ?? false);
+  const handleStartVoice = useCallback(async () => {
+    if (!voice || isSubmitting) return;
+    setVoiceError("");
+    try {
+      const validationError = validateDraftSubmission({
+        text: "",
+        allowsEmptyAutoSubmit: true,
+        composerState,
+        autoSubmitConfig,
+        workspaceDirectory: draftWorkingDirectory,
+        isConnected,
+      });
+      if (validationError) throw new Error(validationError);
+      if (!client) throw new Error(t("workspace.terminal.hostDisconnected"));
+      const provider = composerState.selectedProvider;
+      if (!provider) throw new Error(t("workspaceSetup.errors.selectModel"));
+      const session = createWorkspaceDraftVoiceSession({
+        client,
+        workspaceId,
+        config: buildWorkspaceDraftAgentConfig({
+          provider,
+          cwd: composerState.workingDir,
+          ...resolveDraftModeIdOverride({
+            autoSubmitConfig,
+            effectiveModeId: composerState.effectiveModeId,
+          }),
+          model: composerState.effectiveModelId || undefined,
+          thinkingOptionId: composerState.effectiveThinkingOptionId || undefined,
+          featureValues: composerState.featureValues,
+        }),
+        onCreated: (agent) => {
+          handoffVoiceDraft({
+            sourceDraftKey: draftStoreKey,
+            targetDraftKey: buildDraftStoreKey({ serverId, agentId: agent.id }),
+            sourceScopeKey: draftAttachmentScopeKey,
+            targetScopeKey: workspaceAttachmentScopeKey,
+          });
+          useWorkspaceDraftSubmissionStore.getState().clearDraftSetup({ draftId });
+          onCreated(agent);
+        },
+      });
+      await voice.startVoice(serverId, tabId, {
+        ...session,
+        createAgent: async () => {
+          await composerState.persistFormPreferences();
+          return session.createAgent();
+        },
+      });
+    } catch (error) {
+      setVoiceError(error instanceof Error ? error.message : String(error));
+      throw error;
+    }
+  }, [
+    voice,
+    isSubmitting,
+    composerState,
+    autoSubmitConfig,
+    draftWorkingDirectory,
+    isConnected,
+    client,
+    t,
+    workspaceId,
+    draftStoreKey,
+    draftAttachmentScopeKey,
+    workspaceAttachmentScopeKey,
+    draftId,
+    onCreated,
+    serverId,
+    tabId,
+  ]);
+
+  return { isSubmitting, voiceError, handleStartVoice };
+}
+
+function resolveDraftErrorMessage(voiceError: string, formErrorMessage: string): string {
+  return voiceError || formErrorMessage;
+}
+
 export function WorkspaceDraftAgentTab({
   serverId,
   workspaceId,
@@ -423,7 +540,7 @@ export function WorkspaceDraftAgentTab({
 
   const {
     formErrorMessage,
-    isSubmitting,
+    isSubmitting: isCreatingAgent,
     submittedStreamItems,
     pendingMessageSubmissions,
     draftAgent,
@@ -493,6 +610,23 @@ export function WorkspaceDraftAgentTab({
       onCreated(result);
     },
   });
+  const { isSubmitting, voiceError, handleStartVoice } = useWorkspaceDraftVoice({
+    serverId,
+    workspaceId,
+    tabId,
+    draftId,
+    draftStoreKey,
+    draftAttachmentScopeKey,
+    workspaceAttachmentScopeKey,
+    composerState,
+    autoSubmitConfig,
+    draftWorkingDirectory,
+    isConnected,
+    client,
+    isCreatingAgent,
+    onCreated,
+  });
+  const errorMessage = resolveDraftErrorMessage(voiceError, formErrorMessage);
   const turnPresentation = useMemo(
     () => resolveTurnPresentation(TURN_LIVENESS_IDLE, pendingMessageSubmissions.length > 0),
     [pendingMessageSubmissions],
@@ -618,9 +752,9 @@ export function WorkspaceDraftAgentTab({
       ) : (
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.configScrollContent}>
           <View style={styles.configSection}>
-            {formErrorMessage ? (
+            {errorMessage ? (
               <View style={styles.errorContainer}>
-                <Text style={styles.errorText}>{formErrorMessage}</Text>
+                <Text style={styles.errorText}>{errorMessage}</Text>
               </View>
             ) : null}
           </View>
@@ -647,6 +781,7 @@ export function WorkspaceDraftAgentTab({
             workspaceId={workspaceId}
             isPaneFocused={isPaneFocused}
             onSubmitMessage={handleCreateFromInput}
+            onStartVoice={handleStartVoice}
             isSubmitLoading={isSubmitting}
             blurOnSubmit={true}
             textSource={draftInput.textSource}
