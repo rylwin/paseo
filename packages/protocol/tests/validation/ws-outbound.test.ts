@@ -19,6 +19,21 @@ const generatedWSOutboundPath = resolve(
 );
 const require = createRequire(import.meta.url);
 
+async function generatedValidatorSources(): Promise<string[]> {
+  const entry = await readFile(generatedWSOutboundPath, "utf8");
+  const modules = new Set(
+    [...entry.matchAll(/from "(\.\/ws-outbound\/[^"]+\.js)"/g)].map((match) =>
+      resolve(dirname(generatedWSOutboundPath), match[1].replace(/\.js$/, ".ts")),
+    ),
+  );
+  return [entry, ...(await Promise.all([...modules].map((file) => readFile(file, "utf8"))))];
+}
+
+function generatedFunctionSizes(generated: string): number[] {
+  const starts = [...generated.matchAll(/function safeParse_\w+\(/g)].map((match) => match.index);
+  return starts.map((start, index) => (starts[index + 1] ?? generated.length) - start);
+}
+
 async function compileInlineSchema(sourceSchema: string): Promise<GeneratedSchema> {
   const scratchRoot = resolve(protocolRoot, "../../.tmp");
   await mkdir(scratchRoot, { recursive: true });
@@ -261,8 +276,13 @@ const SourceSchema = z.object({
   });
 
   it("emits runtime imports with .js extensions", async () => {
-    const generated = await readFile(generatedWSOutboundPath, "utf8");
-    expect(generated).toContain('from "./ws-outbound-schema-metadata.js"');
+    const generated = (await generatedValidatorSources()).join("\n");
+    expect(generated).toMatch(/from "\.{1,2}\/ws-outbound-schema-metadata\.js"/);
+  });
+
+  it("keeps generated modules small enough for mobile bundlers to transform", async () => {
+    const sources = await generatedValidatorSources();
+    expect(Math.max(...sources.map((source) => Buffer.byteLength(source)))).toBeLessThan(1_000_000);
   });
 
   it("accepts a forge.search.response envelope", () => {
@@ -321,9 +341,8 @@ const SourceSchema = z.object({
 
   it("keeps each generated validator function small", async () => {
     // A single function for the whole protocol made V8's Maglev tier spend ~800 MB and seconds compiling it.
-    const generated = await readFile(generatedWSOutboundPath, "utf8");
-    const starts = [...generated.matchAll(/function safeParse_\w+\(/g)].map((match) => match.index);
-    const sizes = starts.map((start, index) => (starts[index + 1] ?? generated.length) - start);
+    const sources = await generatedValidatorSources();
+    const sizes = sources.flatMap(generatedFunctionSizes);
 
     expect(Math.max(...sizes)).toBeLessThan(1_000_000);
     expect(sizes.length).toBeGreaterThan(1);
