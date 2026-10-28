@@ -13,6 +13,7 @@ import {
   expectWorkspaceHeaderVisible,
   resizeComposerViewport,
   submitMessage,
+  submitMessageWithButton,
   typeIntoFocusedComposer,
 } from "../support/helpers/composer";
 import { openAgentRoute, seedMockAgentWorkspace } from "../support/helpers/mock-agent";
@@ -136,6 +137,42 @@ test("an empty new chat offers voice mode before its first message", async ({
     page.getByRole("button", { name: "Enable Voice mode", exact: true }).filter({ visible: true }),
   ).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("empty-chat-voice-mode.png") });
+});
+
+test.describe("phone browser safe area", () => {
+  test.use({ viewport: { width: 412, height: 850 }, isMobile: true, hasTouch: true });
+
+  test("keeps new and existing chat inputs above the bottom navigation area", async ({
+    page,
+    context,
+    withWorkspace,
+  }, testInfo) => {
+    const safeAreaBottom = 34;
+    // The workspace setup helper selects its fixture from the wide sidebar.
+    await page.setViewportSize({ width: 1280, height: 850 });
+    const workspace = await withWorkspace();
+    await workspace.navigateTo();
+    await page.setViewportSize({ width: 412, height: 850 });
+    const cdp = await context.newCDPSession(page);
+    await cdp.send("Emulation.setSafeAreaInsetsOverride", { insets: { bottom: safeAreaBottom } });
+    await page.getByRole("button", { name: /Switch tabs/ }).click();
+    await page.getByRole("button", { name: "New agent", exact: true }).click();
+    await expectComposerVisible(page);
+
+    const input = page.getByTestId("message-input-root").filter({ visible: true });
+    const bottomClearance = () =>
+      input.evaluate((element) => window.innerHeight - element.getBoundingClientRect().bottom);
+    await expect.poll(bottomClearance).toBeGreaterThanOrEqual(safeAreaBottom);
+    await page.screenshot({ path: testInfo.outputPath("phone-new-chat-safe-area.png") });
+
+    await submitMessageWithButton(page, "Keep the chat input visible");
+    await expect(
+      page.getByRole("button", { name: "Import session", exact: true }).filter({ visible: true }),
+    ).toHaveCount(0);
+    await expectComposerVisible(page);
+    await expect.poll(bottomClearance).toBeGreaterThanOrEqual(safeAreaBottom);
+    await page.screenshot({ path: testInfo.outputPath("phone-existing-chat-safe-area.png") });
+  });
 });
 
 test("submitting a message leaves the composer ready for the next message", async ({ page }) => {

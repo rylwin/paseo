@@ -3,6 +3,7 @@ export { ComposerFullscreenBody, ComposerFullscreenFooter } from "./internal/ful
 import { ScrollView } from "@/components/ui/scroll-view";
 import { useState, useCallback, useMemo, useRef, type ReactNode } from "react";
 import { View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StyleSheet } from "react-native-unistyles";
 import { resolveInlineComposerCapacity } from "./internal/capacity";
 import { useFullscreenSlotFrame } from "./internal/fullscreen";
@@ -22,6 +23,7 @@ export function ComposerDock({
   fullscreen = false,
 }: ComposerDockProps) {
   const compact = useIsCompactFormFactor();
+  const insets = useSafeAreaInsets();
   const [surfaceSize, setSurfaceSize] = useState<{ width: number; height: number }>();
   const surfaceRef = useRef<View>(null);
   const fullscreenFrame = useFullscreenSlotFrame(fullscreen, surfaceRef, surfaceSize);
@@ -55,7 +57,11 @@ export function ComposerDock({
     );
   }
   return (
-    <View ref={surfaceRef} style={styles.surface} onLayout={measureViewport}>
+    <View
+      ref={surfaceRef}
+      style={[styles.surface, { paddingBottom: insets.bottom }]}
+      onLayout={measureViewport}
+    >
       <View style={styles.content}>{content}</View>
       <View
         style={
