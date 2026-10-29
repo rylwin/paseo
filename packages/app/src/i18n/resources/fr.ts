@@ -68,6 +68,7 @@ export const fr: TranslationResources = {
       daemonClientUnavailable: "Client du daemon indisponible",
       daemonClientDisconnected: "Le client du daemon est déconnecté",
       noFileFound: "Aucun fichier trouvé pour {{token}}",
+      folderOutsideWorkspace: "{{path}} se trouve en dehors de cet espace de travail",
       unexpectedDictationError: "Une erreur inattendue s’est produite pendant la dictée.",
     },
     connectionStatus: {
@@ -1959,7 +1960,6 @@ export const fr: TranslationResources = {
     parent: {
       backToParent: "Retour au parent",
       backTo: "Retour à {{label}}",
-      parent: "Parent",
       parentAgent: "Agent parent",
       openParent: "Ouvrir le parent",
     },
@@ -2065,12 +2065,13 @@ export const fr: TranslationResources = {
     output: "Sortie",
   },
   turnSummary: {
-    messages: {
-      one: "{{count}} message écrit",
-      other: "{{count}} messages écrits",
-    },
+    details: "Voir les détails du tour",
+    sentBy: "Envoyé par {{name}}",
+    showMore: "Afficher plus",
+    showLess: "Afficher moins",
   },
   toolCallGroup: {
+    thought: "Réfléchi",
     editedFiles: {
       one: "{{count}} fichier modifié",
       other: "{{count}} fichiers modifiés",
