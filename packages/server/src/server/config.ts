@@ -1,4 +1,5 @@
 import { configurationEnvironment } from "./config-environment.js";
+// oxlint-disable-next-line paseo/no-sync-io -- Configuration validation runs during startup.
 import { accessSync, constants, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
